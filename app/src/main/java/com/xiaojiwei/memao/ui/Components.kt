@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -69,13 +70,19 @@ fun MmField(value: String, onValueChange: (String) -> Unit, label: String, modif
 @Composable
 fun MmRule() { Box(Modifier.fillMaxWidth().height(1.dp).background(LocalMemaoColors.current.divider)) }
 
+// The active pane owns its fixed page bar; compact navigation joins that same row.
+val LocalOpenNavigationDrawer=compositionLocalOf<(() -> Unit)?> {null}
+
 @Composable
 fun MmTopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}) {
     val c=LocalMemaoColors.current
-    Column {
+    val openDrawer=LocalOpenNavigationDrawer.current
+    Column(Modifier.testTag("pageTopBar")) {
         Row(Modifier.fillMaxWidth().heightIn(min=64.dp).padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
-            if(onBack!=null)MmIconButton(MmIcon.BACK,"返回",onClick=onBack) else Spacer(Modifier.width(12.dp))
-            Text(title,Modifier.weight(1f),color=c.ink,style=MaterialTheme.typography.titleMedium)
+            if(openDrawer!=null)MmIconButton(MmIcon.MENU,"打开导航菜单",modifier=Modifier.testTag("drawerToggle"),onClick=openDrawer)
+            if(onBack!=null)MmIconButton(MmIcon.BACK,"返回",onClick=onBack)
+            else Spacer(Modifier.width(if(openDrawer==null)12.dp else 8.dp))
+            Text(title,Modifier.weight(1f).testTag("pageTitle"),color=c.ink,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
             actions()
         }
         MmRule()

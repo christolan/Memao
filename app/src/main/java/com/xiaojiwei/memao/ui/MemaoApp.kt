@@ -94,6 +94,8 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
             LaunchedEffect(drawerVisible) {if(drawerVisible)keyboard?.hide()}
             var navigating by remember {mutableStateOf(false)}
             val closeDrawer:()->Unit={scope.launch {drawerState.close()}}
+            val openDrawer:(()->Unit)?=if(modalAvailable)({keyboard?.hide();scope.launch {drawerState.open()}})else null
+            val showDetail=s.editor!=null||s.conflict!=null||s.paneOpen
             val navigateAfterClose:(()->Unit)->Unit={action->
                 if(permanentDrawer)action()
                 else if(!navigating) {
@@ -141,31 +143,34 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                 Row(Modifier.fillMaxSize().then(if(drawerVisible)Modifier.clearAndSetSemantics {}else Modifier)) {
                     if(permanentDrawer)NavigationDrawer(s,vm,Modifier.width(drawerWidth).testTag("navigationDrawer"),onNavigate=navigateAfterClose)
                     // This content stays at the same composition site across all window sizes.
-                    Column(Modifier.weight(1f).fillMaxHeight()) {
-                        if(navigationVisible&&!permanentDrawer) {
-                            Row(Modifier.fillMaxWidth().heightIn(min=56.dp).padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
-                                MmIconButton(MmIcon.MENU,"打开导航菜单",modifier=Modifier.testTag("drawerToggle")) {keyboard?.hide();scope.launch {drawerState.open()}}
-                                Text("Memao",Modifier.weight(1f).padding(start=8.dp),color=c.ink,fontSize=18.sp)
+                    CompositionLocalProvider(LocalOpenNavigationDrawer provides openDrawer) {
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            if(s.offline&&s.accountId!=null&&s.page!=UiPage.LOGIN)StateBanner("当前离线 · 仅浏览本机缓存，内容可能不是最新","联网后由你手动发送草稿。")
+                            s.account?.takeIf {it.needsAuthentication}?.let {
+                                StateBanner("访问令牌已失效","缓存和草稿仍保留，更新令牌后可发送。",action={MmButton("更新令牌",{vm.showLogin(it)})})
                             }
-                            MmRule()
-                        }
-                        if(s.offline&&s.accountId!=null&&s.page!=UiPage.LOGIN)StateBanner("当前离线 · 仅浏览本机缓存，内容可能不是最新","联网后由你手动发送草稿。")
-                        s.account?.takeIf {it.needsAuthentication}?.let {
-                            StateBanner("访问令牌已失效","缓存和草稿仍保留，更新令牌后可发送。",action={MmButton("更新令牌",{vm.showLogin(it)})})
-                        }
-                        if(s.page==UiPage.LOGIN) {
-                            LoginPage(s,onConnect,if(s.accountId!=null)({vm.back()})else null,Modifier.weight(1f))
-                        } else if(s.page==UiPage.ACCOUNTS) {
-                            AccountsPage(vm,Modifier.weight(1f))
-                        } else if(s.page==UiPage.SETTINGS&&s.editor==null) {
-                            SettingsPage(vm,Modifier.weight(1f))
-                        } else {
-                            AdaptivePanes(
-                                wide=wide,showDetail=s.editor!=null||s.conflict!=null||s.paneOpen,
-                                modifier=Modifier.weight(1f).fillMaxWidth(),
-                                feed={FeedPage(vm,audio,showGallery,wide)},
-                                detail={DetailPane(vm,audio,showGallery,!wide)},
-                            )
+                            if(s.page==UiPage.LOGIN) {
+                                LoginPage(s,onConnect,if(s.accountId!=null)({vm.back()})else null,Modifier.weight(1f))
+                            } else if(s.page==UiPage.ACCOUNTS) {
+                                AccountsPage(vm,Modifier.weight(1f))
+                            } else if(s.page==UiPage.SETTINGS&&s.editor==null) {
+                                SettingsPage(vm,Modifier.weight(1f))
+                            } else {
+                                AdaptivePanes(
+                                    wide=wide,showDetail=showDetail,
+                                    modifier=Modifier.weight(1f).fillMaxWidth(),
+                                    feed={
+                                        CompositionLocalProvider(LocalOpenNavigationDrawer provides if(showDetail)null else openDrawer) {
+                                            FeedPage(vm,audio,showGallery,wide)
+                                        }
+                                    },
+                                    detail={
+                                        CompositionLocalProvider(LocalOpenNavigationDrawer provides if(showDetail)openDrawer else null) {
+                                            DetailPane(vm,audio,showGallery,!wide)
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }

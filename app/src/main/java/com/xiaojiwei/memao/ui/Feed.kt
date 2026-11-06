@@ -35,19 +35,26 @@ fun visibilityIcon(value:String):MmIcon=when(value){"PUBLIC"->MmIcon.PUBLIC;"PRO
 
 @Composable
 fun FeedPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean) {
+    val s=vm.state
+    Column(Modifier.fillMaxSize()) {
+        MmTopBar(s.page.title) {
+            if(s.page!=UiPage.DRAFTS)MmIconButton(MmIcon.REFRESH,"刷新笔记",enabled=!s.loading,onClick=vm::refresh)
+        }
+        FeedList(vm,audio,onGallery,compact,Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun FeedList(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean,modifier:Modifier) {
     val s=vm.state;val c=LocalMemaoColors.current
     val scrollKey="feed:${s.page}:${s.keyword}:${s.tag}"
     key(s.accountId,scrollKey) {
         val initial=vm.scroll(scrollKey)
         val listState=rememberLazyListState(initial.first,initial.second)
         LaunchedEffect(listState) {snapshotFlow {listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset}.distinctUntilChanged().collect {vm.saveScroll(scrollKey,it.first,it.second)}}
-        LazyColumn(Modifier.fillMaxSize(),state=listState,contentPadding=PaddingValues(horizontal=if(compact)20.dp else 24.dp,vertical=16.dp)) {
+        LazyColumn(modifier.fillMaxWidth(),state=listState,contentPadding=PaddingValues(horizontal=if(compact)20.dp else 24.dp,vertical=16.dp)) {
             item(key="header") {
                 Column {
-                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                        Text(s.page.title,Modifier.weight(1f),color=c.ink,style=if(compact)MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineLarge)
-                        if(s.page!=UiPage.DRAFTS)MmIconButton(MmIcon.REFRESH,"刷新笔记",enabled=!s.loading,onClick=vm::refresh)
-                    }
                     Text(if(s.page==UiPage.DRAFTS)"未发送内容只保存在这台设备" else if(s.page==UiPage.ARCHIVE)"已归档的记录" else LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日")),color=c.secondary,style=MaterialTheme.typography.labelSmall)
                     Spacer(Modifier.height(16.dp))
                     if(s.page==UiPage.NOTES) {

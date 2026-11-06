@@ -105,6 +105,7 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("navigationDrawer").assertIsNotDisplayed()
         compose.onNodeWithTag("editorBody").performTextInput("抽屉切换仍保留的内容")
         compose.onNodeWithTag("editorBody").performTextInputSelection(TextRange(2, 5))
+        saveScreenshot("page-title-compact-editor.png")
         val draftId = compose.runOnIdle { vm.state.editor!!.id }
 
         openDrawer()
@@ -175,6 +176,7 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("navigationDrawer").assertExists()
         compose.onNodeWithTag("editorBody").assertExists()
         compose.onNodeWithTag("drawerTagFilters").assertDoesNotExist()
+        saveScreenshot("page-title-expanded-editor.png")
     }
 
     @Test fun resizingRetainsSearchFilterAndFeedPosition() {
@@ -209,6 +211,7 @@ class AdaptiveDrawerTest {
         val key = "feed:${UiPage.NOTES}:记录:日常"
         val initialIndex = compose.runOnIdle { vm.scroll(key).first }
         assertTrue("Fixture must be scrolled past its header", initialIndex > 1)
+        saveScreenshot("page-title-scrolled-feed.png")
         openDrawer()
         compose.onNodeWithTag("tag:日常").performScrollTo().assertIsSelected()
         saveScreenshot("drawer-tags-compact-open.png")

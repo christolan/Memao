@@ -34,7 +34,11 @@ fun DetailPane(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
         s.editor!=null -> EditorPage(vm,audio,onGallery)
         s.draftDetail!=null -> key(s.draftDetail.id) {DraftDetail(vm,s.draftDetail,audio,onGallery,single)}
         s.selected!=null -> key(s.selected.name) {MemoDetail(vm,s.selected,audio,onGallery,single)}
-        else -> MmEmpty("选择一条记录","在左侧打开笔记，或点击「＋」记录新的想法。")
+        else -> Column(Modifier.fillMaxSize()) {
+            // A pending detail request must retain compact navigation and back.
+            if(single)MmTopBar(s.page.title,vm::back)
+            MmEmpty("选择一条记录","在左侧打开笔记，或点击「＋」记录新的想法。",Modifier.weight(1f))
+        }
     }
 }
 
