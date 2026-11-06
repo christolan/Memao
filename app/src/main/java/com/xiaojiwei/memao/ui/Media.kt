@@ -65,7 +65,7 @@ fun AttachmentList(
         items.filter {!it.isImage&&!it.isAudio}.forEach { item ->
             val c=LocalMemaoColors.current
             Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-                LineIcon(MmIcon.ARCHIVE,tint=c.secondary);Spacer(Modifier.width(10.dp))
+                LineIcon(MmIcon.FILE,tint=c.secondary);Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(item.filename,color=c.ink,style=MaterialTheme.typography.bodySmall)
                     Text("已有附件 · 保留原文件",color=c.secondary,style=MaterialTheme.typography.labelSmall)
@@ -87,7 +87,7 @@ private fun MediaImage(item: MediaDisplay,onLoad:(MediaDisplay)->Unit,onClick:()
             contentScale=if(square)ContentScale.Crop else ContentScale.Fit,
             onSuccess={result -> val size=result.result.image; if(size.width>0&&size.height>0)loadedRatio=size.width.toFloat()/size.height},
         ) else Column(Modifier.fillMaxSize().clickable {onLoad(item)},horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
-            LineIcon(MmIcon.IMAGE,tint=c.secondary);Spacer(Modifier.height(8.dp))
+            LineIcon(MmIcon.IMAGE,Modifier.size(MmIconSize.Empty),tint=c.secondary);Spacer(Modifier.height(8.dp))
             Text(if(item.loading)"正在加载图片…" else "图片尚未缓存 · 点击重试",color=c.secondary,style=MaterialTheme.typography.bodySmall)
         }
         if(onRemove!=null)Box(Modifier.align(Alignment.TopEnd).background(c.background.copy(alpha=.9f),RoundedCornerShape(bottomStart=8.dp))) {

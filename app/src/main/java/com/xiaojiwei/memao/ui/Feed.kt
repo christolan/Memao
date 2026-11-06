@@ -17,11 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.xiaojiwei.memao.media.AudioState
 import com.xiaojiwei.memao.model.Draft
 import com.xiaojiwei.memao.model.Memo
@@ -35,6 +31,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 fun displayTime(raw:String):String=runCatching {DateTimeFormatter.ofPattern("yyyy.MM.dd  HH:mm").withZone(ZoneId.systemDefault()).format(Instant.parse(raw))}.getOrDefault(raw.take(16).replace('T',' '))
 fun displayTime(raw:Long):String=displayTime(Instant.ofEpochMilli(raw).toString())
 fun visibilityLabel(value:String):String=when(value){"PUBLIC"->"公开";"PROTECTED"->"受保护";else->"私密"}
+fun visibilityIcon(value:String):MmIcon=when(value){"PUBLIC"->MmIcon.PUBLIC;"PROTECTED"->MmIcon.PROTECTED;else->MmIcon.LOCK}
 
 @Composable
 fun FeedPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean) {
@@ -48,15 +45,6 @@ fun FeedPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,In
             item(key="header") {
                 Column {
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                        Text("Memao",color=c.ink,fontSize=18.sp)
-                        Spacer(Modifier.weight(1f))
-                        Row(Modifier.heightIn(min=48.dp).widthIn(max=if(compact)160.dp else 220.dp).clickable(role=Role.Button){vm.navigate(UiPage.ACCOUNTS)},verticalAlignment=Alignment.CenterVertically) {
-                            Text(s.account?.displayName?:"账号",Modifier.weight(1f,false),color=c.secondary,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
-                            Spacer(Modifier.width(4.dp));LineIcon(MmIcon.DOWN,tint=c.secondary)
-                        }
-                    }
-                    Spacer(Modifier.height(18.dp))
-                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                         Text(s.page.title,Modifier.weight(1f),color=c.ink,style=if(compact)MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineLarge)
                         if(s.page!=UiPage.DRAFTS)MmIconButton(MmIcon.REFRESH,"刷新笔记",enabled=!s.loading,onClick=vm::refresh)
                     }
@@ -64,10 +52,10 @@ fun FeedPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,In
                     Spacer(Modifier.height(16.dp))
                     if(s.page==UiPage.NOTES) {
                         MmField(s.keyword,vm::setKeyword,"",placeholder="搜索你的记录",inputTag="search",trailing={if(s.keyword.isNotEmpty())MmIconButton(MmIcon.CLOSE,"清除关键词"){vm.setKeyword("")}else Box(Modifier.size(48.dp),contentAlignment=Alignment.Center){LineIcon(MmIcon.SEARCH,tint=c.secondary)}})
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                            TagFilter("全部",s.tag==null){vm.setTag(null)}
-                            val tags=(s.tags.map {it.tag}+s.memos.flatMap {it.tags}+listOfNotNull(s.tag)).distinct()
-                            tags.forEach {tag->TagFilter("#$tag",s.tag==tag){vm.setTag(if(s.tag==tag)null else tag)}}
+                        Spacer(Modifier.height(16.dp))
+                        s.tag?.let {tag->
+                            Text("标签：#$tag",Modifier.fillMaxWidth().testTag("activeTagFilter"),color=c.secondary,style=MaterialTheme.typography.labelSmall)
+                            Spacer(Modifier.height(16.dp))
                         }
                     }
                     MmRule()
@@ -81,7 +69,7 @@ fun FeedPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,In
                 }
             }
             if(s.page==UiPage.DRAFTS) {
-                if(s.drafts.isEmpty())item {EmptyFeed("还没有草稿","编辑未发送的内容会自动保存在这里。")}
+                if(s.drafts.isEmpty())item {EmptyFeed("还没有草稿","编辑未发送的内容会自动保存在这里。",MmIcon.DRAFT)}
                 items(s.drafts,key={it.id}) {draft->DraftRow(draft,s.draftDetail?.id==draft.id||s.editor?.id==draft.id){vm.showDraft(draft)}}
             } else {
                 if(s.loading&&s.memos.isEmpty()) items(3) {SkeletonRow()}
@@ -91,7 +79,8 @@ fun FeedPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,In
                         if(s.offline)"当前只搜索已缓存的内容，联网后可以查找更多。"
                         else if(filtered)"试试其他关键词或标签。"
                         else if(s.page==UiPage.ARCHIVE)"归档后的笔记会出现在这里，可随时恢复。"
-                        else "文字、图片或一段音频，都值得留住。")
+                        else "文字、图片或一段音频，都值得留住。",
+                        icon=if(filtered)MmIcon.SEARCH else if(s.page==UiPage.ARCHIVE)MmIcon.ARCHIVE else MmIcon.NOTES)
                 }
                 items(s.memos,key={it.name}) {memo->
                     MemoRow(memo,s.selected?.name==memo.name,audio,vm,onGallery,compact)
@@ -100,15 +89,6 @@ fun FeedPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,In
                 else if(s.memos.isNotEmpty())item {Text(if(s.offline)"以上为已缓存内容" else "已显示全部记录",Modifier.fillMaxWidth().padding(vertical=28.dp),color=c.secondary,style=MaterialTheme.typography.labelSmall)}
             }
         }
-    }
-}
-
-@Composable
-private fun TagFilter(label:String,selected:Boolean,onClick:()->Unit) {
-    val c=LocalMemaoColors.current
-    Column(Modifier.heightIn(min=48.dp).testTag(if(label=="全部")"tag:all" else "tag:${label.removePrefix("#")}").clickable(role=Role.Tab,onClick=onClick).semantics {this.selected=selected}.padding(horizontal=4.dp),verticalArrangement=Arrangement.Bottom) {
-        Text(label,Modifier.padding(vertical=13.dp),color=if(selected)c.ink else c.secondary,style=MaterialTheme.typography.bodySmall)
-        Box(Modifier.fillMaxWidth().height(2.dp).background(if(selected)c.ink else c.background))
     }
 }
 
@@ -156,10 +136,10 @@ private fun DraftRow(draft:Draft,selected:Boolean,onClick:()->Unit) {
 }
 
 @Composable
-private fun EmptyFeed(title:String,message:String) {
+private fun EmptyFeed(title:String,message:String,icon:MmIcon=MmIcon.NOTES) {
     val c=LocalMemaoColors.current
     Column(Modifier.fillMaxWidth().padding(vertical=64.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-        LineIcon(MmIcon.NOTES,tint=c.secondary);Spacer(Modifier.height(20.dp))
+        LineIcon(icon,Modifier.size(MmIconSize.Empty),tint=c.secondary);Spacer(Modifier.height(20.dp))
         Text(title,color=c.ink,style=MaterialTheme.typography.titleMedium);Spacer(Modifier.height(10.dp));Text(message,color=c.secondary,style=MaterialTheme.typography.bodySmall)
     }
 }

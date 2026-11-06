@@ -48,7 +48,7 @@ fun LoginPage(s:MemaoUiState,onConnect:(String,String)->Unit,onBack:(()->Unit)?,
                     MmField(token,{token=it;tokenError=null},"访问令牌 Token",placeholder="粘贴 Memos 访问令牌",error=tokenError,
                         visualTransformation=if(visible)VisualTransformation.None else PasswordVisualTransformation(),
                         keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),inputTag="token",enabled=!s.busy,
-                        trailing={MmIconButton(MmIcon.EYE,if(visible)"隐藏访问令牌" else "显示访问令牌"){visible=!visible}})
+                        trailing={MmIconButton(if(visible)MmIcon.EYE_OFF else MmIcon.EYE,if(visible)"隐藏访问令牌" else "显示访问令牌"){visible=!visible}})
                     s.loginError?.let {Text(it,color=c.danger,style=MaterialTheme.typography.bodySmall)}
                     MmButton(if(s.busy)"正在验证连接…" else "连接服务器",{
                         val address=server.trim()
@@ -134,7 +134,7 @@ fun SettingsPage(vm:MemaoViewModel,modifier:Modifier=Modifier) {
             Text("服务器",color=c.secondary,style=MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth().heightIn(min=76.dp).clickable {vm.navigate(UiPage.ACCOUNTS)},verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {Text("管理账号",color=c.ink);Text(s.account?.displayName.orEmpty(),color=c.secondary,style=MaterialTheme.typography.bodySmall)}
-                LineIcon(MmIcon.DOWN,tint=c.secondary)
+                LineIcon(MmIcon.NEXT,tint=c.secondary)
             }
             MmRule();Spacer(Modifier.height(28.dp))
             Text("本机存储",color=c.secondary,style=MaterialTheme.typography.bodySmall)

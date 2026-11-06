@@ -45,7 +45,7 @@ private fun MemoDetail(vm:MemaoViewModel,memo:Memo,audio:AudioState,onGallery:(L
     Column(Modifier.fillMaxSize()) {
         MmTopBar(if(memo.archived)"归档笔记" else "笔记",if(single)vm::back else null) {
             MmIconButton(MmIcon.COPY,"复制正文") {clipboard.setText(AnnotatedString(memo.content));vm.notify("已复制正文")}
-            if(memo.archived)MmIconButton(MmIcon.REFRESH,"取消归档",enabled=!s.busy&&!s.offline){vm.archiveMemo(memo)}
+            if(memo.archived)MmIconButton(MmIcon.UNARCHIVE,"取消归档",enabled=!s.busy&&!s.offline){vm.archiveMemo(memo)}
             else MmIconButton(MmIcon.ARCHIVE,"归档笔记",enabled=!s.busy&&!s.offline){vm.archiveMemo(memo)}
             MmIconButton(MmIcon.DELETE,"删除笔记",enabled=!s.busy&&!s.offline,danger=true){deleting=true}
         }
@@ -56,7 +56,7 @@ private fun MemoDetail(vm:MemaoViewModel,memo:Memo,audio:AudioState,onGallery:(L
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal=if(single)24.dp else 28.dp,vertical=28.dp),verticalArrangement=Arrangement.spacedBy(20.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Text(displayTime(memo.createTime),Modifier.weight(1f),color=c.secondary,style=MaterialTheme.typography.bodySmall)
-                LineIcon(MmIcon.LOCK,tint=c.secondary);Spacer(Modifier.width(6.dp))
+                LineIcon(visibilityIcon(memo.visibility),tint=c.secondary);Spacer(Modifier.width(6.dp))
                 Text(visibilityLabel(memo.visibility),color=c.secondary,style=MaterialTheme.typography.bodySmall)
             }
             if(memo.content.isNotBlank())Markdown(memo.content)

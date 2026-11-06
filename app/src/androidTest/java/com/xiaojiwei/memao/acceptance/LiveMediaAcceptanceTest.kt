@@ -7,6 +7,7 @@ import android.os.ParcelFileDescriptor
 import android.graphics.Bitmap
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -61,7 +62,7 @@ class LiveMediaAcceptanceTest {
         var createdMemo: Memo? = null
         var stage = "核对本机测试账号"
         try {
-            compose.waitUntil(30_000) { exists("server") || exists("navNotes") }
+            compose.waitUntil(30_000) { exists("server") || (exists("drawerToggle") || exists("navNotes")) }
             val restoringAccount = compose.runOnIdle { viewModel().repository.activeAccountId.value != null }
             if (!restoringAccount && exists("server")) {
                 connectedHere = true
@@ -69,7 +70,7 @@ class LiveMediaAcceptanceTest {
                     compose.onNodeWithTag("server", useUnmergedTree = true).performTextReplacement(credentials.first)
                     compose.onNodeWithTag("token", useUnmergedTree = true).performTextReplacement(credentials.second)
                     compose.onNodeWithTag("connect", useUnmergedTree = true).performScrollTo().performClick()
-                    compose.waitUntil(30_000) { exists("navNotes") }
+                    compose.waitUntil(30_000) { (exists("drawerToggle") || exists("navNotes")) }
                 } catch (_: Throwable) {
                     throw AssertionError("本机媒体验收连接失败，请核对adb reverse及局域网权限（凭据已隐藏）")
                 }
@@ -85,7 +86,7 @@ class LiveMediaAcceptanceTest {
             go("navNotes")
             val previousDraftIds = compose.runOnIdle { viewModel().state.drafts.map { it.id }.toSet() }
             stage = "向空白编辑器粘贴测试Provider图片URI"
-            compose.onNodeWithTag("newMemo", useUnmergedTree = true).performClick()
+            go("newMemo")
             waitTag("editorBody")
             compose.runOnIdle { clipboard.setPrimaryClip(ClipData.newUri(context.contentResolver, "Memao generated QA image", uri)) }
             compose.onNodeWithText("粘贴图片").performScrollTo().performClick()
@@ -190,7 +191,14 @@ class LiveMediaAcceptanceTest {
     private fun exists(tag: String): Boolean = compose.onAllNodes(hasTestTag(tag), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     private fun waitTag(tag: String) { compose.waitUntil(30_000) { exists(tag) } }
     private fun waitAbsent(tag: String) { compose.waitUntil(30_000) { !exists(tag) } }
-    private fun go(tag: String) { waitTag(tag); compose.onNodeWithTag(tag, useUnmergedTree = true).performClick() }
+    private fun go(tag: String) {
+        compose.waitUntil(30_000) { exists(tag) || exists("drawerToggle") }
+        if (exists("drawerToggle") && !compose.onNodeWithTag("navigationDrawer", useUnmergedTree = true).isDisplayed()) {
+            compose.onNodeWithTag("drawerToggle", useUnmergedTree = true).performClick()
+        }
+        waitTag(tag)
+        compose.onNodeWithTag(tag, useUnmergedTree = true).performScrollTo().performClick()
+    }
     private fun waitText(text: String) {
         compose.waitUntil(30_000) { compose.onAllNodes(hasText(text)).fetchSemanticsNodes().isNotEmpty() }
     }

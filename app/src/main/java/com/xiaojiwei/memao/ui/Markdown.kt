@@ -8,7 +8,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -82,16 +86,26 @@ private fun MarkdownBlock(node: Node, lines: List<String>, compact: Boolean) {
             Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
                 while(item!=null) {
                     val current=item
-                    val first=current.firstChild
-                    val task=first?.firstChild as? TaskListItemMarker
+                    // CommonMark prepends the marker to ListItem, before its Paragraph.
+                    val task=current.firstChild as? TaskListItemMarker
                     Row {
-                        Text(if(task!=null) (if(task.isChecked) "☑  " else "☐  ") else if(node is OrderedList) "${index++}.  " else "•  ",color=c.secondary,style=body)
+                        if(task!=null) {
+                            val density=LocalDensity.current
+                            val iconSize=with(density) {body.fontSize.toDp()}.coerceAtLeast(MmIconSize.Toolbar)
+                            val lineHeight=with(density) {body.lineHeight.toDp()}.coerceAtLeast(iconSize)
+                            Box(Modifier.width(iconSize+8.dp).height(lineHeight).semantics {
+                                contentDescription=if(task.isChecked)"已完成待办" else "未完成待办"
+                            },contentAlignment=Alignment.CenterStart) {
+                                LineIcon(if(task.isChecked)MmIcon.CHECKED else MmIcon.UNCHECKED,Modifier.size(iconSize),c.secondary)
+                            }
+                        } else Text(if(node is OrderedList) "${index++}.  " else "•  ",color=c.secondary,style=body)
                         Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) { Children(current,lines,compact) }
                     }
                     item=current.next
                 }
             }
         }
+        is TaskListItemMarker -> Unit // The list row renders its read-only icon.
         is ThematicBreak -> MmRule()
         is FencedCodeBlock -> Text(source(node,lines).ifBlank { node.literal },color=c.secondary,style=body)
         is IndentedCodeBlock -> Text(source(node,lines).ifBlank { node.literal },color=c.secondary,style=body)

@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -84,7 +85,7 @@ class LiveAppAcceptanceTest {
                 loginStep = "等待局域网权限与账号首页"
                 compose.waitUntil(30_000) {
                     allowPermissionDialogIfPresent()
-                    exists("navNotes")
+                    (exists("drawerToggle") || exists("navNotes"))
                 }
                 loginStep = "确认凭据表单已移除"
                 compose.onNodeWithTag("token", useUnmergedTree = true).assertDoesNotExist()
@@ -114,7 +115,7 @@ class LiveAppAcceptanceTest {
             compose.onNodeWithTag("search", useUnmergedTree = true).performTextReplacement(marker)
             waitTag("memo:${first.name}")
             waitTag("memo:${second.name}")
-            compose.onNodeWithTag("tag:$tag", useUnmergedTree = true).performScrollTo().performClick()
+            go("tag:$tag")
             waitTag("memo:${first.name}")
             waitAbsent("memo:${second.name}")
             compose.onNodeWithTag("search", useUnmergedTree = true).performTextReplacement("$marker 不匹配")
@@ -176,7 +177,7 @@ class LiveAppAcceptanceTest {
             waitTag("memo:${first.name}")
 
             stage = "创建待保护的本地草稿"
-            compose.onNodeWithTag("newMemo", useUnmergedTree = true).performClick()
+            go("newMemo")
             waitTag("editorBody")
             compose.onNodeWithTag("editorBody", useUnmergedTree = true).performTextReplacement(protectedDraft)
             compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
@@ -209,7 +210,7 @@ class LiveAppAcceptanceTest {
                 go("navNotes")
                 waitTag("search")
                 compose.onNodeWithTag("search", useUnmergedTree = true).performTextReplacement("")
-                compose.onNodeWithTag("tag:all", useUnmergedTree = true).performScrollTo().performClick()
+                go("tag:all")
                 waitTag("memo:${first.name}")
                 captureEvidence("home-dark", hideKeyboard = true)
                 val directory = evidenceDirectory()
@@ -251,8 +252,7 @@ class LiveAppAcceptanceTest {
     }
 
     private fun createThroughApp(content: String) {
-        waitTag("newMemo")
-        compose.onNodeWithTag("newMemo", useUnmergedTree = true).performClick()
+        go("newMemo")
         waitTag("editorBody")
         compose.onNodeWithTag("editorBody", useUnmergedTree = true).performTextReplacement(content)
         compose.onNodeWithTag("sendMemo", useUnmergedTree = true).performClick()
@@ -268,7 +268,16 @@ class LiveAppAcceptanceTest {
         return requireNotNull(found)
     }
 
-    private fun go(tag: String) { waitTag(tag); compose.onNodeWithTag(tag, useUnmergedTree = true).performClick() }
+    private fun go(tag: String) {
+        compose.waitUntil(30_000) { exists(tag) || exists("drawerToggle") }
+        val compact = exists("drawerToggle") || exists("drawerClose")
+        if (exists("drawerToggle") && !compose.onNodeWithTag("navigationDrawer", useUnmergedTree = true).isDisplayed()) {
+            compose.onNodeWithTag("drawerToggle", useUnmergedTree = true).performClick()
+        }
+        waitTag(tag)
+        compose.onNodeWithTag(tag, useUnmergedTree = true).performScrollTo().performClick()
+        if (compact) compose.waitUntil(30_000) { !compose.onNodeWithTag("navigationDrawer", useUnmergedTree = true).isDisplayed() }
+    }
     private fun exists(tag: String): Boolean = compose.onAllNodes(hasTestTag(tag), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     private fun waitTag(tag: String) { compose.waitUntil(30_000) { exists(tag) } }
     private fun waitAbsent(tag: String) { compose.waitUntil(30_000) { !exists(tag) } }

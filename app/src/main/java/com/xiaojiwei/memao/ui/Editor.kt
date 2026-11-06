@@ -58,8 +58,8 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
             MmButton(if(s.sending)"发送中…" else "发送",{keyboard?.hide();vm.send()},Modifier.testTag("sendMemo"),primary=true,enabled=editable&&!draft.empty&&!s.offline)
         }
         Row(Modifier.fillMaxWidth().padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically) {
-            MmButton("编辑",{if(s.preview)vm.togglePreview()},enabled=editable)
-            MmButton("预览",{if(!s.preview){keyboard?.hide();vm.togglePreview()}},enabled=editable)
+            MmButton("编辑",{if(s.preview)vm.togglePreview()},enabled=editable,icon=MmIcon.EDIT)
+            MmButton("预览",{if(!s.preview){keyboard?.hide();vm.togglePreview()}},enabled=editable,icon=MmIcon.EYE)
             Spacer(Modifier.weight(1f))
             Text(when {s.importing->"正在保存附件…";s.saving->"正在保存…";s.saveError!=null->"保存失败";draft.empty->"尚无内容";else->"已保存在本机"},color=if(s.saveError!=null)c.danger else c.secondary,style=MaterialTheme.typography.labelSmall)
         }
@@ -91,7 +91,7 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-            LineIcon(MmIcon.LOCK,tint=c.secondary);Spacer(Modifier.width(6.dp))
+            LineIcon(visibilityIcon(if(draft.isNew)"PRIVATE" else draft.baseMemo?.visibility?:"PRIVATE"),tint=c.secondary);Spacer(Modifier.width(6.dp))
             Text(if(draft.isNew)"私密笔记" else visibilityLabel(draft.baseMemo?.visibility?:"PRIVATE")+" · 保持原可见性",Modifier.weight(1f),color=c.secondary,style=MaterialTheme.typography.labelSmall)
             if(s.offline)Text("离线草稿",color=c.secondary,style=MaterialTheme.typography.labelSmall)
         }
@@ -99,10 +99,20 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
             MmRule()
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=8.dp)) {
                 listOf(
-                    Triple("H","# ",""),Triple("B","**","**"),Triple("I","*","*"),
-                    Triple("列表","- ",""),Triple("1.","1. ",""),Triple("引用","> ",""),
-                    Triple("链接","[","](https://)"),Triple("待办","- [ ] ",""),
-                ).forEach { (label,prefix,suffix)->MmButton(label,{vm.format(prefix,suffix);focus.requestFocus()},enabled=editable)}
+                    MarkdownShortcut(MmIcon.HEADING,"标题","# "),
+                    MarkdownShortcut(MmIcon.BOLD,"粗体","**","**"),
+                    MarkdownShortcut(MmIcon.ITALIC,"斜体","*","*"),
+                    MarkdownShortcut(MmIcon.LIST,"无序列表","- "),
+                    MarkdownShortcut(MmIcon.ORDERED_LIST,"有序列表","1. "),
+                    MarkdownShortcut(MmIcon.QUOTE,"引用","> "),
+                    MarkdownShortcut(MmIcon.LINK,"链接","[","](https://)"),
+                    MarkdownShortcut(MmIcon.TASK_LIST,"待办列表","- [ ] "),
+                ).forEach { shortcut ->
+                    MmIconButton(shortcut.icon,shortcut.label,enabled=editable) {
+                        vm.format(shortcut.prefix,shortcut.suffix)
+                        focus.requestFocus()
+                    }
+                }
             }
         }
         MmRule()
@@ -127,3 +137,5 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
     removing?.let {item->MmDialog("移除附件？","发送前只修改本地草稿，服务端原笔记暂不改变。",onDismiss={removing=null},
         actions={MmButton("取消",{removing=null});MmButton("移除",{vm.removeAttachment(item.key);removing=null},danger=true)})}
 }
+
+private data class MarkdownShortcut(val icon:MmIcon,val label:String,val prefix:String,val suffix:String="")

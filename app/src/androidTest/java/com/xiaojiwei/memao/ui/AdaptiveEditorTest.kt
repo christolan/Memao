@@ -76,7 +76,9 @@ class AdaptiveEditorTest {
         val width=mutableStateOf(420.dp)
         compose.setContent {Box(Modifier.requiredWidth(width.value).fillMaxHeight()){MemaoApp(vm){_,_->}}}
         compose.waitUntil(10_000){vm.state.accountId!=null}
+        compose.onNodeWithTag("drawerToggle").performClick()
         compose.onNodeWithTag("newMemo").performClick()
+        compose.waitUntil(10_000){vm.state.editor!=null}
         compose.onNodeWithTag("editorBody").performTextInput("第一行记录\n折叠后继续编辑 #日常")
         compose.onNodeWithTag("editorBody").performTextInputSelection(TextRange(2,5))
         val draftId=vm.state.editor!!.id
@@ -92,6 +94,12 @@ class AdaptiveEditorTest {
             assertEquals(draftId,vm.state.editor!!.id)
             assertEquals(2,vm.state.editor!!.cursorStart)
             assertEquals(5,vm.state.editor!!.cursorEnd)
+            width.value=600.dp
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("navigationDrawer").assertExists()
+        compose.onNodeWithTag("editorBody").assert(SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange,TextRange(2,5)))
+        compose.runOnIdle {
             width.value=420.dp
         }
         compose.waitForIdle()

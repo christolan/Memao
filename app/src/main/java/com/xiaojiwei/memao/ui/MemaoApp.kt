@@ -7,22 +7,33 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
@@ -35,6 +46,7 @@ import com.xiaojiwei.memao.model.ThemeMode
 import com.xiaojiwei.memao.media.AudioState
 import com.xiaojiwei.memao.ui.theme.LocalMemaoColors
 import com.xiaojiwei.memao.ui.theme.MemaoTheme
+import kotlinx.coroutines.launch
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
@@ -61,43 +73,105 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
         }
         val keyboard=LocalSoftwareKeyboardController.current
         val imeVisible=WindowInsets.isImeVisible
-        BackHandler(s.editor!=null||s.paneOpen||s.conflict!=null||s.page==UiPage.ACCOUNTS||(s.page==UiPage.LOGIN&&s.accountId!=null)) {
-            if(imeVisible)keyboard?.hide() else vm.back()
-        }
         BoxWithConstraints(Modifier.fillMaxSize().background(c.background).safeDrawingPadding()) {
             val scale=LocalDensity.current.fontScale.coerceAtLeast(1f)
-            val wide=maxWidth>=840.dp&&(maxWidth-72.dp)/3>=240.dp*scale
+            val navigationVisible=s.accountId!=null&&s.page!=UiPage.LOGIN
+            val permanentDrawer=navigationVisible&&maxWidth>=600.dp
+            val drawerWidth=240.dp
+            // Keep navigation available on medium windows without squeezing two content panes.
+            val contentWidth=maxWidth-if(permanentDrawer)drawerWidth else 0.dp
+            val wide=contentWidth/3>=240.dp*scale
+            val modalAvailable=navigationVisible&&!permanentDrawer
+            val modalWidth=minOf(280.dp,(maxWidth-48.dp).coerceAtLeast(0.dp))
+            // A mode/account change replaces only transient drawer state, never the content tree.
+            // A wide window therefore cannot retain an opening animation or a modal scrim.
+            val drawerState=key(modalAvailable,s.accountId) {rememberDrawerState(DrawerValue.Closed)}
+            val currentDrawerState by rememberUpdatedState(drawerState)
+            val scope=rememberCoroutineScope()
+            val modalWidthPx=with(LocalDensity.current){modalWidth.toPx()}
+            val drawerVisible=modalAvailable&&(drawerState.isOpen||drawerState.targetValue==DrawerValue.Open||
+                (!drawerState.currentOffset.isNaN()&&drawerState.currentOffset> -modalWidthPx+.5f))
+            LaunchedEffect(drawerVisible) {if(drawerVisible)keyboard?.hide()}
+            var navigating by remember {mutableStateOf(false)}
+            val closeDrawer:()->Unit={scope.launch {drawerState.close()}}
+            val navigateAfterClose:(()->Unit)->Unit={action->
+                if(permanentDrawer)action()
+                else if(!navigating) {
+                    navigating=true
+                    val accountId=s.accountId
+                    scope.launch {
+                        try {
+                            drawerState.close()
+                            // Ignore delayed clicks after account changes or a layout-mode switch.
+                            if(vm.state.accountId==accountId&&currentDrawerState===drawerState)action()
+                        } finally {navigating=false}
+                    }
+                }
+            }
+            BackHandler(!drawerVisible&&(s.editor!=null||s.paneOpen||s.conflict!=null||s.page==UiPage.ACCOUNTS||(s.page==UiPage.LOGIN&&s.accountId!=null))) {
+                if(imeVisible)keyboard?.hide() else vm.back()
+            }
+            // The sheet handles open/predictive back; intercept back during the opening animation too.
+            BackHandler(drawerVisible&&!drawerState.isOpen) {closeDrawer()}
             val audio by vm.audio.state.collectAsStateWithLifecycle()
             val gallery=s.gallery
             val showGallery:(List<MediaDisplay>,Int)->Unit=vm::showGallery
-            Row(Modifier.fillMaxSize()) {
-                if(wide&&s.accountId!=null&&s.page!=UiPage.LOGIN)NavigationRail(s,vm)
-                Column(Modifier.weight(1f).fillMaxHeight()) {
-                    if(s.offline&&s.accountId!=null&&s.page!=UiPage.LOGIN)StateBanner("当前离线 · 仅浏览本机缓存，内容可能不是最新","联网后由你手动发送草稿。")
-                    s.account?.takeIf {it.needsAuthentication}?.let {
-                        StateBanner("访问令牌已失效","缓存和草稿仍保留，更新令牌后可发送。",action={MmButton("更新令牌",{vm.showLogin(it)})})
+            ModalNavigationDrawer(
+                modifier=Modifier.fillMaxSize().clipToBounds().testTag("navigationShell"),
+                drawerState=drawerState,
+                gesturesEnabled=modalAvailable&&gallery==null&&!navigating,
+                scrimColor=if(modalAvailable)Color.Black.copy(alpha=.32f)else Color.Transparent,
+                drawerContent={
+                    // Keep the sheet composed while closed and throughout closing animations.
+                    Box(Modifier.testTag(if(modalAvailable)"navigationDrawer" else "inactiveNavigationDrawer")) {
+                        ModalDrawerSheet(
+                            drawerState=drawerState,
+                            modifier=Modifier.width(modalWidth).then(if(!drawerVisible)Modifier.clearAndSetSemantics {}else Modifier),
+                            drawerShape=RectangleShape,
+                            drawerContainerColor=c.background,
+                            drawerContentColor=c.ink,
+                            drawerTonalElevation=0.dp,
+                            windowInsets=WindowInsets(0,0,0,0),
+                        ) {
+                            NavigationDrawer(s,vm,onNavigate=navigateAfterClose,onClose=closeDrawer)
+                        }
                     }
-                    if(s.page==UiPage.LOGIN) {
-                        LoginPage(s,onConnect,if(s.accountId!=null)({vm.back()})else null,Modifier.weight(1f))
-                    } else if(s.page==UiPage.ACCOUNTS) {
-                        AccountsPage(vm,Modifier.weight(1f))
-                    } else if(s.page==UiPage.SETTINGS&&s.editor==null) {
-                        SettingsPage(vm,Modifier.weight(1f))
-                    } else {
-                        AdaptivePanes(
-                            wide=wide,showDetail=s.editor!=null||s.conflict!=null||s.paneOpen,
-                            modifier=Modifier.weight(1f).fillMaxWidth(),
-                            feed={FeedPage(vm,audio,showGallery,wide)},
-                            detail={DetailPane(vm,audio,showGallery,!wide)},
-                        )
-                    }
-                    if(!wide&&s.accountId!=null&&s.page!=UiPage.LOGIN&&s.editor==null&&s.conflict==null) {
-                        BottomNavigation(s,vm)
+                },
+            ) {
+                Row(Modifier.fillMaxSize().then(if(drawerVisible)Modifier.clearAndSetSemantics {}else Modifier)) {
+                    if(permanentDrawer)NavigationDrawer(s,vm,Modifier.width(drawerWidth).testTag("navigationDrawer"),onNavigate=navigateAfterClose)
+                    // This content stays at the same composition site across all window sizes.
+                    Column(Modifier.weight(1f).fillMaxHeight()) {
+                        if(navigationVisible&&!permanentDrawer) {
+                            Row(Modifier.fillMaxWidth().heightIn(min=56.dp).padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
+                                MmIconButton(MmIcon.MENU,"打开导航菜单",modifier=Modifier.testTag("drawerToggle")) {keyboard?.hide();scope.launch {drawerState.open()}}
+                                Text("Memao",Modifier.weight(1f).padding(start=8.dp),color=c.ink,fontSize=18.sp)
+                            }
+                            MmRule()
+                        }
+                        if(s.offline&&s.accountId!=null&&s.page!=UiPage.LOGIN)StateBanner("当前离线 · 仅浏览本机缓存，内容可能不是最新","联网后由你手动发送草稿。")
+                        s.account?.takeIf {it.needsAuthentication}?.let {
+                            StateBanner("访问令牌已失效","缓存和草稿仍保留，更新令牌后可发送。",action={MmButton("更新令牌",{vm.showLogin(it)})})
+                        }
+                        if(s.page==UiPage.LOGIN) {
+                            LoginPage(s,onConnect,if(s.accountId!=null)({vm.back()})else null,Modifier.weight(1f))
+                        } else if(s.page==UiPage.ACCOUNTS) {
+                            AccountsPage(vm,Modifier.weight(1f))
+                        } else if(s.page==UiPage.SETTINGS&&s.editor==null) {
+                            SettingsPage(vm,Modifier.weight(1f))
+                        } else {
+                            AdaptivePanes(
+                                wide=wide,showDetail=s.editor!=null||s.conflict!=null||s.paneOpen,
+                                modifier=Modifier.weight(1f).fillMaxWidth(),
+                                feed={FeedPage(vm,audio,showGallery,wide)},
+                                detail={DetailPane(vm,audio,showGallery,!wide)},
+                            )
+                        }
                     }
                 }
             }
             s.message?.let {message ->
-                Row(Modifier.align(Alignment.BottomCenter).padding(horizontal=20.dp,vertical=if(wide)20.dp else 160.dp).clip(RoundedCornerShape(8.dp)).background(c.soft).padding(start=16.dp),verticalAlignment=Alignment.CenterVertically) {
+                Row(Modifier.align(Alignment.BottomCenter).padding(horizontal=20.dp,vertical=20.dp).clip(RoundedCornerShape(8.dp)).background(c.soft).padding(start=16.dp),verticalAlignment=Alignment.CenterVertically) {
                     Text(message,Modifier.weight(1f),color=c.ink,style=MaterialTheme.typography.bodySmall)
                     MmIconButton(MmIcon.CLOSE,"关闭提示",onClick=vm::dismissMessage)
                 }
@@ -151,45 +225,75 @@ private tailrec fun activityOf(context:Context):Activity?=when(context) {
 }
 
 @Composable
-private fun NavigationRail(s:MemaoUiState,vm:MemaoViewModel) {
+private fun NavigationDrawer(
+    s:MemaoUiState,
+    vm:MemaoViewModel,
+    modifier:Modifier=Modifier,
+    onNavigate:(()->Unit)->Unit,
+    onClose:(()->Unit)?=null,
+) {
     val c=LocalMemaoColors.current
-    Row(Modifier.fillMaxHeight()) {
-        Column(Modifier.width(72.dp).fillMaxHeight().padding(horizontal=10.dp,vertical=20.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-            Text("m.",color=c.ink,fontSize=24.sp);Spacer(Modifier.height(24.dp))
-            MmButton("",vm::newDraft,Modifier.size(48.dp).testTag("newMemo").semantics {contentDescription="新建笔记"},primary=true,icon=MmIcon.PLUS,enabled=!s.sending&&!s.importing)
-            Spacer(Modifier.height(24.dp))
-            listOf(UiPage.NOTES,UiPage.DRAFTS,UiPage.ARCHIVE).forEach {page->NavItem(page,s.page==page,true){vm.navigate(page)}}
-            Spacer(Modifier.weight(1f));NavItem(UiPage.SETTINGS,s.page==UiPage.SETTINGS||s.page==UiPage.ACCOUNTS,true){vm.navigate(UiPage.SETTINGS)}
+    Row(modifier.fillMaxHeight().background(c.background).semantics {paneTitle="导航菜单"}) {
+        Column(Modifier.weight(1f).fillMaxHeight()
+            .verticalScroll(rememberScrollState()).padding(horizontal=16.dp,vertical=12.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) {
+                Text("Memao",Modifier.weight(1f).padding(start=12.dp),color=c.ink,fontSize=24.sp)
+                onClose?.let {close->MmIconButton(MmIcon.CLOSE,"关闭导航菜单",modifier=Modifier.testTag("drawerClose"),onClick=close)}
+            }
+            Spacer(Modifier.height(20.dp))
+            MmButton("记录",{onNavigate(vm::newDraft)},Modifier.fillMaxWidth().testTag("newMemo"),primary=true,icon=MmIcon.PLUS,enabled=!s.sending&&!s.importing)
+            Spacer(Modifier.height(20.dp))
+            listOf(UiPage.NOTES,UiPage.DRAFTS,UiPage.ARCHIVE).forEach {page->
+                DrawerItem(page,s.page==page){onNavigate {vm.navigate(page)}}
+            }
+            if(s.page==UiPage.NOTES&&s.editor==null) {
+                Spacer(Modifier.height(12.dp));MmRule();Spacer(Modifier.height(12.dp))
+                Column(Modifier.fillMaxWidth().testTag("drawerTagFilters")) {
+                    Text("标签",Modifier.padding(horizontal=12.dp,vertical=8.dp),color=c.secondary,style=MaterialTheme.typography.labelSmall)
+                    DrawerTagFilter(null,s.tag==null){onNavigate {vm.setTag(null)}}
+                    val tags=(s.tags.map {it.tag}+s.memos.flatMap {it.tags}+listOfNotNull(s.tag)).distinct()
+                    tags.forEach {tag->
+                        DrawerTagFilter(tag,s.tag==tag){onNavigate {vm.setTag(if(s.tag==tag)null else tag)}}
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp));MmRule();Spacer(Modifier.height(12.dp))
+            DrawerItem(UiPage.SETTINGS,s.page==UiPage.SETTINGS||s.page==UiPage.ACCOUNTS){onNavigate {vm.navigate(UiPage.SETTINGS)}}
+            Row(Modifier.fillMaxWidth().heightIn(min=56.dp).clip(RoundedCornerShape(8.dp)).testTag("drawerAccounts")
+                .clickable(role=Role.Button){onNavigate {vm.navigate(UiPage.ACCOUNTS)}}.padding(horizontal=12.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("服务器账号",color=c.secondary,style=MaterialTheme.typography.labelSmall)
+                    Text(s.account?.displayName?:"账号",color=c.ink,style=MaterialTheme.typography.bodyMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+                }
+                Spacer(Modifier.width(8.dp));LineIcon(MmIcon.NEXT,tint=c.secondary)
+            }
         }
         Box(Modifier.width(1.dp).fillMaxHeight().background(c.divider))
     }
 }
 
 @Composable
-private fun BottomNavigation(s:MemaoUiState,vm:MemaoViewModel) {
+private fun DrawerTagFilter(tag:String?,selected:Boolean,onClick:()->Unit) {
     val c=LocalMemaoColors.current
-    Column(Modifier.fillMaxWidth().background(c.background)) {
-        if(!s.paneOpen&&s.page in listOf(UiPage.NOTES,UiPage.DRAFTS,UiPage.ARCHIVE)) {
-            MmButton("记录",vm::newDraft,Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=12.dp).testTag("newMemo"),primary=true,icon=MmIcon.PLUS)
-        }
-        MmRule()
-        Row(Modifier.fillMaxWidth().heightIn(min=64.dp).padding(horizontal=8.dp)) {
-            listOf(UiPage.NOTES,UiPage.DRAFTS,UiPage.ARCHIVE,UiPage.SETTINGS).forEach {page->
-                Box(Modifier.weight(1f)){NavItem(page,s.page==page||(page==UiPage.SETTINGS&&s.page==UiPage.ACCOUNTS),false){vm.navigate(page)}}
-            }
-        }
+    Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag(if(tag==null)"tag:all" else "tag:$tag")
+        .clip(RoundedCornerShape(8.dp)).then(if(selected)Modifier.background(c.soft)else Modifier)
+        .clickable(role=Role.Tab,onClick=onClick).semantics {this.selected=selected}
+        .padding(horizontal=12.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
+        Text(if(tag==null)"全部" else "#$tag",Modifier.weight(1f),color=if(selected)c.ink else c.secondary,style=MaterialTheme.typography.bodyMedium)
     }
 }
 
 @Composable
-private fun NavItem(page:UiPage,selected:Boolean,rail:Boolean,onClick:()->Unit) {
+private fun DrawerItem(page:UiPage,selected:Boolean,onClick:()->Unit) {
     val c=LocalMemaoColors.current
     val icon=when(page){UiPage.DRAFTS->MmIcon.DRAFT;UiPage.ARCHIVE->MmIcon.ARCHIVE;UiPage.SETTINGS->MmIcon.SETTINGS;else->MmIcon.NOTES}
     val tag=when(page){UiPage.NOTES->"navNotes";UiPage.DRAFTS->"navDrafts";UiPage.ARCHIVE->"navArchive";else->"navSettings"}
-    Column(Modifier.fillMaxWidth().heightIn(min=64.dp).testTag(tag).clip(RoundedCornerShape(8.dp)).then(if(rail&&selected)Modifier.background(c.soft)else Modifier)
-        .clickable(role=Role.Tab,onClick=onClick).semantics {this.selected=selected}.padding(vertical=8.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
-        LineIcon(icon,tint=if(selected)c.ink else c.secondary);Spacer(Modifier.height(4.dp))
-        Text(page.title,color=if(selected)c.ink else c.secondary,style=MaterialTheme.typography.labelSmall)
+    Row(Modifier.fillMaxWidth().heightIn(min=56.dp).testTag(tag).clip(RoundedCornerShape(8.dp))
+        .then(if(selected)Modifier.background(c.soft)else Modifier)
+        .clickable(role=Role.Tab,onClick=onClick).semantics {this.selected=selected}.padding(horizontal=12.dp,vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
+        LineIcon(icon,Modifier.size(MmIconSize.Navigation),tint=if(selected)c.ink else c.secondary)
+        Spacer(Modifier.width(16.dp))
+        Text(page.title,color=if(selected)c.ink else c.secondary,style=MaterialTheme.typography.bodyMedium)
     }
 }
 

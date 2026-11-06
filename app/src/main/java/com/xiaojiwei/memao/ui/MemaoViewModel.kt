@@ -51,6 +51,8 @@ class MemaoViewModel(
     private var draftsJob:Job?=null
     private var autosave:Job?=null
     private var searchJob:Job?=null
+    private var memoLoadJob:Job?=null
+    private var memoRequestId=0L
     private var editVersion=0L
     private val saveMutex=Mutex()
     private val mediaJobs=mutableMapOf<String,Job>()
@@ -61,6 +63,9 @@ class MemaoViewModel(
         override fun onLost(network:Network){viewModelScope.launch {state=state.copy(offline=connection.activeNetwork==null)}}
     }
     init {
+        // A new ViewModel starts a new navigation session. Persistent drafts and filters remain;
+        // configuration changes and background returns reuse this ViewModel and keep their scene.
+        saved.keys().filter {it.startsWith("page:")||it.startsWith("editor:")}.forEach {saved.remove<String>(it)}
         state=state.copy(offline=connection.activeNetwork==null)
         runCatching {connection.registerDefaultNetworkCallback(networkCallback)}
         viewModelScope.launch {repository.accounts.collect {state=state.copy(accounts=it)}}
@@ -68,6 +73,7 @@ class MemaoViewModel(
         viewModelScope.launch {
             repository.activeAccountId.collectLatest {id ->
                 if(id!=state.accountId) {
+                    cancelMemoRequest()
                     audio.stop()
                     mediaJobs.values.forEach {it.cancel()};mediaJobs.clear()
                     state=state.copy(
@@ -78,11 +84,8 @@ class MemaoViewModel(
                         preview=false,editorNew=false,gallery=null,
                     )
                     if(id!=null) {
-                        val page=runCatching {UiPage.valueOf(saved.get<String>("page:$id")?:"NOTES")}.getOrDefault(UiPage.NOTES)
-                        state=state.copy(page=if(page==UiPage.LOGIN)UiPage.NOTES else page,keyword=saved["keyword:$id"]?:"",tag=saved["tag:$id"])
+                        state=state.copy(page=UiPage.NOTES,keyword=saved["keyword:$id"]?:"",tag=saved["tag:$id"])
                         subscribe(id)
-                        val draftId=saved.get<String>("editor:$id")
-                        if(draftId==null&&state.page==UiPage.NOTES)repository.lastViewed(id)?.let {openMemoByName(id,it)}
                     } else {feedJob?.cancel();draftsJob?.cancel();state=state.copy(page=UiPage.LOGIN,memos=emptyList(),drafts=emptyList(),paneOpen=false)}
                 }
             }
@@ -95,8 +98,6 @@ class MemaoViewModel(
             repository.observeDrafts(id).collect {drafts ->
                 if(state.accountId!=id)return@collect
                 state=state.copy(drafts=drafts,draftDetail=state.draftDetail?.let {old->drafts.find {it.id==old.id}?:old})
-                val restore=saved.get<String>("editor:$id")
-                if(state.editor==null&&restore!=null)drafts.find {it.id==restore}?.let {openDraft(it,true)}
             }
         }
         subscribeFeed()
@@ -117,7 +118,9 @@ class MemaoViewModel(
             try {
                 flushEditorOrThrow()
                 val account=repository.connect(server,token)
-                state=state.copy(pendingAuthentication=null,page=UiPage.NOTES,keyword="",tag=null,error=null,loginError=null)
+                cancelMemoRequest()
+                state=state.copy(pendingAuthentication=null,page=UiPage.NOTES,keyword="",tag=null,error=null,loginError=null,
+                    editor=null,draftDetail=null,selected=null,paneOpen=false,conflict=null)
                 if(account.id==state.accountId){subscribeFeed();refresh()}
             } catch(e:Exception) {if(e is CancellationException)throw e;state=state.copy(loginError=readable(e))}
             finally {state=state.copy(busy=false)}
@@ -128,7 +131,6 @@ class MemaoViewModel(
     fun navigate(page:UiPage) {
         leaveEditor {
             state=state.copy(page=page,paneOpen=false,selected=null,draftDetail=null,error=null,conflict=null)
-            state.accountId?.let {saved["page:$it"]=page.name}
             if(page==UiPage.NOTES||page==UiPage.ARCHIVE){subscribeFeed();refresh()}
             if(page==UiPage.SETTINGS)loadCache()
         }
@@ -139,18 +141,20 @@ class MemaoViewModel(
     fun removeAccount(account:Account) {
         viewModelScope.launch {
             try {
-                if(state.accountId==account.id){autosave?.cancel();state=state.copy(editor=null,draftDetail=null,selected=null);saved["editor:${account.id}"]=null;audio.stop()}
+                if(state.accountId==account.id){cancelMemoRequest();autosave?.cancel();state=state.copy(editor=null,draftDetail=null,selected=null);audio.stop()}
                 repository.removeAccount(account.id)
                 state=state.copy(message="已清理该账号的本地数据，服务端数据未改变。")
             }catch(e:Exception){report(e)}
         }
     }
     fun setKeyword(value:String) {
+        cancelMemoRequest()
         state=state.copy(keyword=value,selected=null,paneOpen=false)
         state.accountId?.let {saved["keyword:$it"]=value}
         searchJob?.cancel();searchJob=viewModelScope.launch {delay(300);subscribeFeed();refresh()}
     }
     fun setTag(value:String?) {
+        cancelMemoRequest()
         state=state.copy(tag=value,selected=null,paneOpen=false)
         state.accountId?.let {saved["tag:$it"]=value}
         subscribeFeed();refresh()
@@ -186,25 +190,37 @@ class MemaoViewModel(
             openMemoByName(id,memo.name)
         }
     }
+    private fun cancelMemoRequest() {
+        memoRequestId++
+        memoLoadJob?.cancel()
+        memoLoadJob=null
+    }
     private fun openMemoByName(id:String,name:String) {
-        viewModelScope.launch {
+        cancelMemoRequest()
+        val requestId=memoRequestId
+        val page=state.page
+        val requestedQuery=query()
+        fun isCurrentRequest()=requestId==memoRequestId&&state.accountId==id&&state.page==page&&query()==requestedQuery&&
+            state.selected?.name==name&&state.paneOpen&&state.editor==null&&state.draftDetail==null
+        memoLoadJob=viewModelScope.launch {
             try {
                 val memo=repository.openMemo(id,name)
-                val matches=memo.archived==(state.page==UiPage.ARCHIVE)&&
-                    (state.tag==null||state.tag in memo.tags)&&memo.content.contains(state.keyword,ignoreCase=true)
+                if(!isCurrentRequest())return@launch
+                val matches=memo.archived==requestedQuery.archived&&
+                    (requestedQuery.tag==null||requestedQuery.tag in memo.tags)&&memo.content.contains(requestedQuery.keyword,ignoreCase=true)
                 if(!matches) {
-                    if(state.accountId==id&&state.selected==null)state=state.copy(paneOpen=false,message="上次查看的笔记不符合当前筛选。")
+                    state=state.copy(selected=null,paneOpen=false,complete=null,message="这条笔记不符合当前筛选。")
                     return@launch
                 }
                 val complete=repository.isMemoComplete(id,memo)
-                if(state.accountId==id&&state.editor==null&&(state.selected==null||state.selected?.name==name))state=state.copy(selected=memo,paneOpen=true,complete=complete)
-            }catch(e:Exception){if(e is CancellationException)throw e;if(state.accountId==id)state=state.copy(error=readable(e))}
+                if(isCurrentRequest())state=state.copy(selected=memo,paneOpen=true,complete=complete)
+            }catch(e:Exception){if(e is CancellationException)throw e;if(isCurrentRequest())state=state.copy(error=readable(e))}
         }
     }
     fun showDraft(draft:Draft){leaveEditor {state=state.copy(draftDetail=draft,selected=null,paneOpen=true,conflict=null)}}
     fun openDraft(draft:Draft,newEditor:Boolean=false) {
+        cancelMemoRequest()
         state=state.copy(editor=draft,draftDetail=null,selected=null,paneOpen=true,preview=false,saveError=null,editorNew=newEditor)
-        saved["editor:${draft.accountId}"]=draft.id
         editVersion++
     }
     fun newDraft() {
@@ -212,7 +228,7 @@ class MemaoViewModel(
             val id=state.accountId?:return@leaveEditor
             val d=repository.newDraft(id)
             state=state.copy(editor=d,draftDetail=null,selected=null,paneOpen=true,preview=false,editorNew=true,saveError=null)
-            saved["editor:$id"]=d.id;editVersion++
+            editVersion++
         }
     }
     fun editSelected() {
@@ -275,15 +291,16 @@ class MemaoViewModel(
     fun flushOnStop(){if(!state.sending&&!state.importing)viewModelScope.launch {flushEditor()}}
     private fun leaveEditor(after:suspend ()->Unit) {
         if(state.sending||state.importing)return
+        cancelMemoRequest()
         viewModelScope.launch {
             autosave?.cancel()
             if(!flushEditor())return@launch
-            state.editor?.let {saved["editor:${it.accountId}"]=null}
             state=state.copy(editor=null,preview=false,saveError=null)
             after()
         }
     }
     fun back() {
+        cancelMemoRequest()
         if(state.editor!=null)leaveEditor {state=state.copy(paneOpen=false,selected=null,draftDetail=null,conflict=null)}
         else if(state.conflict!=null)state=state.copy(conflict=null)
         else if(state.page==UiPage.LOGIN||state.page==UiPage.ACCOUNTS)navigate(if(state.accountId==null)UiPage.LOGIN else UiPage.SETTINGS)
@@ -332,14 +349,12 @@ class MemaoViewModel(
                             val latest=runCatching {repository.getDraft(id,draft.id)}.getOrNull()
                             state=state.copy(editor=latest?:state.editor,conflict=null,message="已发送，更新的修改仍保留在草稿。")
                         } else {
-                            saved["editor:$id"]=null
                             state=state.copy(editor=null,draftDetail=null,selected=result.memo,paneOpen=true,conflict=null,message="已发送到服务器")
                         }
                         refresh()
                     }
                     is SendResult.Conflict -> state=state.copy(conflict=result)
                     is SendResult.KeptServer -> {
-                        saved["editor:$id"]=null
                         state=state.copy(conflict=null,editor=null,draftDetail=null,selected=result.server,paneOpen=result.server!=null,message="已保留服务端版本，本地草稿仍保留。")
                     }
                     is SendResult.Failed -> state=state.copy(error=result.message)
@@ -354,7 +369,7 @@ class MemaoViewModel(
         viewModelScope.launch {
             try {
                 repository.deleteDraft(draft.accountId,draft.id)
-                if(state.editor?.id==draft.id){autosave?.cancel();state=state.copy(editor=null);saved["editor:${draft.accountId}"]=null}
+                if(state.editor?.id==draft.id){autosave?.cancel();state=state.copy(editor=null)}
                 if(state.draftDetail?.id==draft.id)state=state.copy(draftDetail=null,paneOpen=false)
                 state=state.copy(message="已删除本地草稿，服务端笔记未改变。")
             }catch(e:Exception){report(e)}
