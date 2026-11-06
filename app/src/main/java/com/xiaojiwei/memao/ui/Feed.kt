@@ -2,12 +2,10 @@ package com.xiaojiwei.memao.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -36,8 +34,9 @@ fun visibilityIcon(value:String):MmIcon=when(value){"PUBLIC"->MmIcon.PUBLIC;"PRO
 @Composable
 fun FeedPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean) {
     val s=vm.state
+    val title=s.page.title+if(s.page==UiPage.NOTES)s.tag?.let {" #$it"}.orEmpty() else ""
     Column(Modifier.fillMaxSize()) {
-        MmTopBar(s.page.title) {
+        MmTopBar(title) {
             if(s.page!=UiPage.DRAFTS)MmIconButton(MmIcon.REFRESH,"刷新笔记",enabled=!s.loading,onClick=vm::refresh)
         }
         FeedList(vm,audio,onGallery,compact,Modifier.weight(1f))
@@ -60,10 +59,6 @@ private fun FeedList(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDis
                     if(s.page==UiPage.NOTES) {
                         MmField(s.keyword,vm::setKeyword,"",placeholder="搜索你的记录",inputTag="search",trailing={if(s.keyword.isNotEmpty())MmIconButton(MmIcon.CLOSE,"清除关键词"){vm.setKeyword("")}else Box(Modifier.size(48.dp),contentAlignment=Alignment.Center){LineIcon(MmIcon.SEARCH,tint=c.secondary)}})
                         Spacer(Modifier.height(16.dp))
-                        s.tag?.let {tag->
-                            Text("标签：#$tag",Modifier.fillMaxWidth().testTag("activeTagFilter"),color=c.secondary,style=MaterialTheme.typography.labelSmall)
-                            Spacer(Modifier.height(16.dp))
-                        }
                     }
                     MmRule()
                 }
@@ -114,13 +109,6 @@ private fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMode
         if(memo.attachments.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
             AttachmentList(memo.attachments.map(vm::media),audio,{vm.loadMedia(it)},{vm.loadMedia(it,true)},vm.audio::seekTo,onGallery,compact)
-        }
-        if(memo.tags.isNotEmpty()&&!memo.archived) {
-            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                memo.tags.forEach {tag->MmButton("#$tag",{vm.setTag(tag)})}
-            }
-        } else if(memo.tags.isNotEmpty()) {
-            Text(memo.tags.joinToString("   ") {"#$it"},color=c.secondary,style=MaterialTheme.typography.bodySmall)
         }
     }
     MmRule()

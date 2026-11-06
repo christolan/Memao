@@ -65,7 +65,6 @@ private fun MemoDetail(vm:MemaoViewModel,memo:Memo,audio:AudioState,onGallery:(L
             }
             if(memo.content.isNotBlank())Markdown(memo.content)
             AttachmentList(memo.attachments.map(vm::media),audio,{vm.loadMedia(it)},{vm.loadMedia(it,true)},vm.audio::seekTo,onGallery)
-            if(memo.tags.isNotEmpty())Text(memo.tags.joinToString("   ") {"#$it"},color=c.secondary,style=MaterialTheme.typography.bodySmall)
             Text(if(s.complete==true)"正文和附件已完整缓存，可离线编辑。" else if(s.offline)"附件未完整缓存，联网补齐后可编辑。" else "编辑前会补齐附件并保存到本机。",color=c.secondary,style=MaterialTheme.typography.bodySmall)
         }
         MmRule()
