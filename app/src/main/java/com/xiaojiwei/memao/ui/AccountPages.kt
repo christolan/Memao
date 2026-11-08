@@ -1,8 +1,6 @@
 package com.xiaojiwei.memao.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -12,7 +10,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -20,7 +17,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaojiwei.memao.model.Account
-import com.xiaojiwei.memao.model.ThemeMode
 import com.xiaojiwei.memao.ui.theme.LocalMemaoColors
 import kotlinx.coroutines.flow.first
 import java.net.URI
@@ -113,49 +109,4 @@ fun AccountsPage(vm:MemaoViewModel,modifier:Modifier=Modifier) {
             actions={MmButton("取消",{deleting=null});MmButton("删除账号",{deleting=null;vm.removeAccount(account)},danger=true,enabled=deleteDraftCount!=null)},
             body={Spacer(Modifier.height(16.dp));Text(account.displayName,color=c.ink,style=MaterialTheme.typography.titleMedium);Text(account.serverUrl,color=c.secondary,style=MaterialTheme.typography.bodySmall)})
     }
-}
-
-@Composable
-fun SettingsPage(vm:MemaoViewModel,modifier:Modifier=Modifier) {
-    val s=vm.state;val c=LocalMemaoColors.current
-    LaunchedEffect(Unit){vm.loadCache()}
-    Column(modifier.fillMaxWidth()) {
-        MmTopBar("设置")
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp)) {
-            Text("外观",color=c.secondary,style=MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(12.dp))
-            listOf(Triple(ThemeMode.SYSTEM,"跟随系统","themeSystem"),Triple(ThemeMode.LIGHT,"浅色","themeLight"),Triple(ThemeMode.DARK,"深色","themeDark")).forEach { (mode,label,tag) ->
-                Row(Modifier.fillMaxWidth().heightIn(min=56.dp).testTag(tag).selectable(selected=s.settings.theme==mode,role=Role.RadioButton){vm.setTheme(mode)}.padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-                    Text(label,Modifier.weight(1f),color=c.ink,style=MaterialTheme.typography.bodyMedium)
-                    if(s.settings.theme==mode)LineIcon(MmIcon.CHECK)
-                }
-            }
-            MmRule();Spacer(Modifier.height(28.dp))
-            Text("服务器",color=c.secondary,style=MaterialTheme.typography.bodySmall)
-            Row(Modifier.fillMaxWidth().heightIn(min=76.dp).clickable {vm.navigate(UiPage.ACCOUNTS)},verticalAlignment=Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {Text("管理账号",color=c.ink);Text(s.account?.displayName.orEmpty(),color=c.secondary,style=MaterialTheme.typography.bodySmall)}
-                LineIcon(MmIcon.NEXT,tint=c.secondary)
-            }
-            MmRule();Spacer(Modifier.height(28.dp))
-            Text("本机存储",color=c.secondary,style=MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(16.dp))
-            Text("普通缓存 · "+formatBytes(s.cache?.ordinaryBytes?:0),color=c.ink)
-            Text("所有账号合计默认上限 1 GB，按需缓存。",color=c.secondary,style=MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(12.dp))
-            Text("受保护的草稿附件 · "+formatBytes(s.cache?.protectedBytes?:0),color=c.ink,style=MaterialTheme.typography.bodyMedium)
-            Text("不计入可自动清理额度，实际占用可能超过 1 GB。",color=c.secondary,style=MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(12.dp));MmButton("清理普通缓存",vm::clearCache,Modifier.testTag("clearCache"))
-            Text("始终保留未发送草稿及其图片、音频。删除草稿请前往草稿页。",color=c.secondary,style=MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(24.dp));MmRule();Spacer(Modifier.height(32.dp))
-            Text("Memao",color=c.ink,style=MaterialTheme.typography.titleMedium)
-            Text("记录生活里的小事\n兼容 Memos 0.31.0 · 简体中文",color=c.secondary,style=MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-private fun formatBytes(bytes:Long):String=when {
-    bytes>=1024L*1024*1024->"%.2f GB".format(bytes.toDouble()/(1024*1024*1024))
-    bytes>=1024L*1024->"%.1f MB".format(bytes.toDouble()/(1024*1024))
-    bytes>=1024L->"%.1f KB".format(bytes.toDouble()/1024)
-    else->"$bytes B"
 }

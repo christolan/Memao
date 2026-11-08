@@ -56,7 +56,9 @@ enum class MmIcon(@param:DrawableRes val drawable: Int, val mirrorInRtl: Boolean
     UNCHECKED(R.drawable.ic_lucide_square),
     CHECKED(R.drawable.ic_lucide_square_check),
     PUBLIC(R.drawable.ic_lucide_globe),
-    PROTECTED(R.drawable.ic_lucide_shield)
+    PROTECTED(R.drawable.ic_lucide_shield),
+    CLEAR_CACHE(R.drawable.ic_lucide_eraser),
+    DRAFT_PROTECTED(R.drawable.ic_lucide_shield_check)
 }
 
 object MmIconSize {

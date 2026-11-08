@@ -3,7 +3,7 @@
   "version": "1.61.0",
   "commit": "c29c276f16590cf017126671535ad8c792be64d8",
   "release_url": "https://github.com/lucide-icons/lucide/releases/tag/1.61.0",
-  "count": 40,
+  "count": 42,
   "baseline_commit": "bb81088613964f3093f283eacf1b533eb886efe3",
   "icons": [
     {
@@ -405,6 +405,26 @@
       "source_url": "https://raw.githubusercontent.com/lucide-icons/lucide/c29c276f16590cf017126671535ad8c792be64d8/icons/shield.svg",
       "svg_sha256": "be32f6a86df7cbe43a83c439dd8849e5bcf5145e484d23420c20d8b98a78e82b",
       "android_sha256": "3f348f67caffefebf78d651c108a2f622117b032fbd93624f872d89dfae18ac5"
+    },
+    {
+      "semantic": "CLEAR_CACHE",
+      "name": "eraser",
+      "label": "清理普通缓存",
+      "svg": "source-svg/eraser.svg",
+      "android": "app/src/main/res/drawable/ic_lucide_eraser.xml",
+      "source_url": "https://raw.githubusercontent.com/lucide-icons/lucide/c29c276f16590cf017126671535ad8c792be64d8/icons/eraser.svg",
+      "svg_sha256": "838d4355dd49340523c38a22a2d23f1aca72ef42f8eba79f6a0c84bf6e27b929",
+      "android_sha256": "339888abf02529bd9e79de5c4dc34b10bc1af4870e60116d8931611eb746d053"
+    },
+    {
+      "semantic": "DRAFT_PROTECTED",
+      "name": "shield-check",
+      "label": "受保护的草稿及附件",
+      "svg": "source-svg/shield-check.svg",
+      "android": "app/src/main/res/drawable/ic_lucide_shield_check.xml",
+      "source_url": "https://raw.githubusercontent.com/lucide-icons/lucide/c29c276f16590cf017126671535ad8c792be64d8/icons/shield-check.svg",
+      "svg_sha256": "8d4fcdbde5bba4abb1a2f6fe53e37ceb6343a1d5449a9d88f6f97c1971d26c4e",
+      "android_sha256": "8c02bf08d19bc4cee835bb37b5344630b17fe2f18296eea0219aa8539a06f2f5"
     }
   ],
   "generator": "python3 third_party/lucide/generate.py"

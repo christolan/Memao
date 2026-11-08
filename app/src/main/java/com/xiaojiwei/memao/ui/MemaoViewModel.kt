@@ -37,6 +37,8 @@ data class MemaoUiState(
     val saveError:String? = null,val saving:Boolean = false,val preparingMemo:String? = null,
     val files:Map<String,File> = emptyMap(),val loadingFiles:Set<String> = emptySet(),
     val conflict:SendResult.Conflict? = null,val cache:CacheReport? = null,
+    val cacheLoading:Boolean = false,val cacheClearing:Boolean = false,
+    val cacheReadError:String? = null,val cacheClearError:String? = null,
     val loginError:String? = null,val pendingAuthentication:Account? = null,
     val gallery:Pair<List<MediaDisplay>,Int>? = null,
 ) {
@@ -47,6 +49,18 @@ class MemaoViewModel(
     val repository:MemaoRepository, context:Context, private val saved:SavedStateHandle,
 ) : ViewModel() {
     private var shellState by mutableStateOf(MemaoUiState())
+    private val cacheSettings=CacheSettingsController(
+        scope=viewModelScope,
+        readCache=repository::cacheReport,
+        clearCache=repository::clearOrdinaryCache,
+        onStateChanged={cache->shellState=shellState.copy(
+            cache=cache.report,cacheLoading=cache.loading,cacheClearing=cache.clearing,
+            cacheReadError=cache.readError,cacheClearError=cache.clearError,
+        )},
+        onCleared={notifyCurrentSession->shellState=shellState.copy(
+            files=emptyMap(),message=if(notifyCurrentSession)"已清理普通缓存，草稿及附件完整保留。" else shellState.message,
+        )},
+    )
     // The shell survives configuration changes and owns the page ViewModels' lifetime.
     // Clearing its store cancels all page collectors and in-flight work before repository close.
     private val pageStore=ViewModelStore()
@@ -111,6 +125,7 @@ class MemaoViewModel(
             repository.activeAccountId.collectLatest {id ->
                 if(id!=state.accountId) {
                     cancelMemoRequest()
+                    cacheSettings.reset()
                     editorBaseline=null;discardUnchangedEditor=false
                     audio.stop()
                     mediaJobs.values.forEach {it.cancel()};mediaJobs.clear()
@@ -155,7 +170,6 @@ class MemaoViewModel(
         leaveEditor {
             shellState=shellState.copy(page=page,paneOpen=false,draftDetail=null,error=null,conflict=null,loading=false,refreshing=false)
             currentList?.ensureLoaded()
-            if(page==UiPage.SETTINGS)loadCache()
         }
     }
     fun selectAccount(account:Account) {
@@ -448,8 +462,8 @@ class MemaoViewModel(
         }
     }
     fun setTheme(mode:ThemeMode){repository.setTheme(mode)}
-    fun loadCache(){viewModelScope.launch {runCatching {repository.cacheReport()}.onSuccess {shellState=shellState.copy(cache=it)}.onFailure {report(it)}}}
-    fun clearCache(){viewModelScope.launch {try {val report=repository.clearOrdinaryCache();shellState=shellState.copy(cache=report,files=emptyMap(),message="已清理普通缓存，未发送草稿及附件完整保留。")}catch(e:Exception){report(e)}}}
+    fun loadCache(){cacheSettings.load()}
+    fun clearCache(){cacheSettings.clear()}
     fun media(attachment:Attachment):MediaDisplay {
         return MediaDisplay(attachment.name,attachment.filename,attachment.type,state.files[attachment.name],attachment.width,attachment.height,attachment.name in state.loadingFiles)
     }
@@ -485,6 +499,7 @@ class MemaoViewModel(
     private fun report(error:Throwable){if(error is CancellationException)throw error;shellState=shellState.copy(error=readable(error))}
     private fun readable(e:Throwable)=e.message?.takeIf {it.isNotBlank()}?:"操作失败，请重试。"
     override fun onCleared(){
+        cacheSettings.close()
         runCatching {connection.unregisterNetworkCallback(networkCallback)}
         pageStore.clear()
         audio.close()
