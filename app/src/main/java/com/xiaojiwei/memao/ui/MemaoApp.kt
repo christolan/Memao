@@ -161,7 +161,11 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                                     modifier=Modifier.weight(1f).fillMaxWidth(),
                                     feed={
                                         CompositionLocalProvider(LocalOpenNavigationDrawer provides if(showDetail)null else openDrawer) {
-                                            FeedPage(vm,audio,showGallery,wide)
+                                            when(s.page) {
+                                                UiPage.DRAFTS->DraftsPage(vm,vm.drafts,wide)
+                                                UiPage.ARCHIVE->ArchivePage(vm,vm.archive,audio,showGallery,wide)
+                                                else->NotesPage(vm,vm.notes,audio,showGallery,wide)
+                                            }
                                         }
                                     },
                                     detail={

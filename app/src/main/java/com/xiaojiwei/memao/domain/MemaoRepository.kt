@@ -220,14 +220,17 @@ class MemaoRepository(
         val owner = account(accountId)
         try {
             val value = checkOwner(gateway.get(owner, name), owner)
-            localLock.withLock { account(accountId); dao.putMemo(MemoRecord(accountId, name, ModelCodec.memo(value), now())) }
+            localLock.withLock { account(accountId); cacheMemo(owner, value) }
             rememberViewed(accountId, name)
             value
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
             markAuthentication(owner, error)
             if (error is MemosException && error.statusCode in listOf(403, 404)) {
-                dao.deleteMemo(accountId, name)
+                localLock.withLock {
+                    dao.deleteMemo(accountId, name)
+                    forgetMemoMembership(accountId, name)
+                }
                 throw error
             }
             dao.memo(accountId, name)?.let { ModelCodec.memo(it.payload) } ?: throw error
@@ -461,12 +464,20 @@ class MemaoRepository(
                         return@withLock SendResult.Unknown("相同编号的笔记已存在但内容不一致，请核对服务端；草稿已保留")
                     }
                 }
-                if (value.memoName != null) {
-                    val server = readOrMissing(owner, value.memoName)
+                val originalName = value.memoName
+                if (originalName != null) {
+                    val server = readOrMissing(owner, originalName)
                     checkedServer = server
                     if (choice == ConflictChoice.KEEP_SERVER) {
                         updateDraftState(value, SendState.SAVED, null)
-                        server?.let { cacheMemo(owner, it) }
+                        localLock.withLock {
+                            account(accountId)
+                            if (server != null) cacheMemo(owner, server)
+                            else {
+                                dao.deleteMemo(accountId, originalName)
+                                forgetMemoMembership(accountId, originalName)
+                            }
+                        }
                         return@withLock SendResult.KeptServer(server, value.copy(sendState = SendState.SAVED, error = null))
                     }
                     val changed = server == null || value.baseMemo == null || !DomainRules.sameBase(value.baseMemo, server)
@@ -634,9 +645,6 @@ class MemaoRepository(
             }
         }
         rememberViewed(owner.id, memo.name)
-        membership.value = membership.value.mapValues { (key, names) ->
-            if (key.accountId == owner.id && DomainRules.matches(memo, key.query)) names + memo.name else if (key.accountId == owner.id) names - memo.name else names
-        }
         removeUnreferencedImportsLocked()
         SendResult.Sent(memo, keepNewer)
     }
@@ -644,6 +652,19 @@ class MemaoRepository(
     private suspend fun cacheMemo(owner: Account, memo: Memo) {
         checkOwner(memo, owner)
         dao.putMemo(MemoRecord(owner.id, memo.name, ModelCodec.memo(memo), now()))
+        // Single-record reads/writes must also reach pages that have already loaded.
+        // Keep all other loaded members and pagination tokens intact.
+        membership.value = membership.value.mapValues { (key, names) ->
+            if (key.accountId != owner.id) names
+            else if (DomainRules.matches(memo, key.query)) names + memo.name
+            else names - memo.name
+        }
+    }
+
+    private fun forgetMemoMembership(accountId: String, name: String) {
+        membership.value = membership.value.mapValues { (key, names) ->
+            if (key.accountId == accountId) names - name else names
+        }
     }
 
     suspend fun setArchived(accountId: String, name: String, archived: Boolean) = withContext(Dispatchers.IO) {
@@ -653,9 +674,6 @@ class MemaoRepository(
         val changed = checkOwner(gateway.update(owner, UpdateMemo(name, state = if (archived) "ARCHIVED" else "NORMAL")), owner)
         localLock.withLock {
             account(accountId); cacheMemo(owner, changed)
-            membership.value = membership.value.mapValues { (key, names) ->
-                if (key.accountId != accountId) names else if (DomainRules.matches(changed, key.query)) names + name else names - name
-            }
         }
     }
 
@@ -666,7 +684,7 @@ class MemaoRepository(
         gateway.delete(owner, name)
         localLock.withLock {
             dao.deleteMemo(accountId, name)
-            membership.value = membership.value.mapValues { (key, names) -> if (key.accountId == accountId) names - name else names }
+            forgetMemoMembership(accountId, name)
         }
     }
 

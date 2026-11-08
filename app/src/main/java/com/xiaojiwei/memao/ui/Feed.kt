@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,75 +38,113 @@ fun visibilityLabel(value:String):String=when(value){"PUBLIC"->"公开";"PROTECT
 fun visibilityIcon(value:String):MmIcon=when(value){"PUBLIC"->MmIcon.PUBLIC;"PROTECTED"->MmIcon.PROTECTED;else->MmIcon.LOCK}
 
 @Composable
-fun FeedPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean) {
-    val s=vm.state
-    val title=s.page.title+if(s.page==UiPage.NOTES)s.tag?.let {" #$it"}.orEmpty() else ""
-    Column(Modifier.fillMaxSize().testTag("feedPage")) {
-        MmTopBar(title)
-        FeedList(vm,audio,onGallery,compact,Modifier.weight(1f))
+fun NotesPage(vm:MemaoViewModel,page:NotesViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean) {
+    MemoListPage(vm,page,audio,onGallery,compact)
+}
+
+@Composable
+fun ArchivePage(vm:MemaoViewModel,page:ArchiveViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean) {
+    MemoListPage(vm,page,audio,onGallery,compact)
+}
+
+@Composable
+private fun TrackPageScroll(page:ListPageViewModel) {
+    val owner=page.accountId
+    val scrollKey=page.scrollKey
+    val listState=page.listState
+    LaunchedEffect(page,owner,scrollKey,listState) {
+        snapshotFlow {listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset}
+            .distinctUntilChanged().collect {page.saveScroll(owner,scrollKey,it.first,it.second)}
     }
 }
 
 @Composable
-private fun FeedList(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean,modifier:Modifier) {
-    val s=vm.state;val c=LocalMemaoColors.current
-    val scrollKey="feed:${s.page}:${s.keyword}:${s.tag}"
-    key(s.accountId,scrollKey) {
-        val initial=vm.scroll(scrollKey)
-        val listState=rememberLazyListState(initial.first,initial.second)
-        val refreshState=rememberPullToRefreshState()
-        val canRefresh=s.page==UiPage.NOTES||s.page==UiPage.ARCHIVE
-        LaunchedEffect(listState) {snapshotFlow {listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset}.distinctUntilChanged().collect {vm.saveScroll(scrollKey,it.first,it.second)}}
-        Box(modifier.fillMaxWidth().clipToBounds().pullToRefresh(
-            state=refreshState,isRefreshing=s.refreshing,enabled=canRefresh&&!s.loading,onRefresh=vm::pullRefresh,
-        )) {
-            LazyColumn(Modifier.fillMaxSize().testTag("feedList").semantics {
-                if(canRefresh&&!s.loading)customActions=listOf(CustomAccessibilityAction(if(s.page==UiPage.ARCHIVE)"刷新归档" else "刷新笔记") {vm.pullRefresh();true})
-            },state=listState,contentPadding=PaddingValues(horizontal=if(compact)20.dp else 24.dp,vertical=16.dp)) {
+fun DraftsPage(vm:MemaoViewModel,page:DraftsViewModel,compact:Boolean) {
+    val drafts=page.state.drafts
+    val shared=vm.state
+    val c=LocalMemaoColors.current
+    key(page.accountId) {
+        TrackPageScroll(page)
+        Column(Modifier.fillMaxSize().testTag("feedPage")) {
+            MmTopBar("草稿")
+            if(!page.state.cacheReady)Box(Modifier.weight(1f).fillMaxWidth())
+            else LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("feedList"),state=page.listState,
+                contentPadding=PaddingValues(horizontal=if(compact)20.dp else 24.dp,vertical=16.dp)) {
                 item(key="header") {
                     Column {
-                        Text(if(s.page==UiPage.DRAFTS)"未发送内容只保存在这台设备" else if(s.page==UiPage.ARCHIVE)"已归档的记录" else LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日")),color=c.secondary,style=MaterialTheme.typography.labelSmall)
-                        Spacer(Modifier.height(16.dp))
-                        if(s.page==UiPage.NOTES) {
-                            MmField(s.keyword,vm::setKeyword,"",placeholder="搜索你的记录",inputTag="search",trailing={if(s.keyword.isNotEmpty())MmIconButton(MmIcon.CLOSE,"清除关键词"){vm.setKeyword("")}else Box(Modifier.size(48.dp),contentAlignment=Alignment.Center){LineIcon(MmIcon.SEARCH,tint=c.secondary)}})
-                            Spacer(Modifier.height(16.dp))
-                        }
-                        MmRule()
+                        Text("未发送内容只保存在这台设备",color=c.secondary,style=MaterialTheme.typography.labelSmall)
+                        Spacer(Modifier.height(16.dp));MmRule()
                     }
                 }
-                if(s.error!=null) item(key="error") {
-                    Column(Modifier.padding(vertical=12.dp)) {
-                        Text(s.error,color=c.danger,style=MaterialTheme.typography.bodySmall)
-                        Row {MmButton("重试",vm::refresh);MmButton("关闭提示",vm::dismissError)}
-                        MmRule()
-                    }
-                }
-                if(s.page==UiPage.DRAFTS) {
-                    if(s.drafts.isEmpty())item {EmptyFeed("还没有草稿","编辑未发送的内容会自动保存在这里。",MmIcon.DRAFT)}
-                    items(s.drafts,key={it.id}) {draft->DraftRow(draft,s.draftDetail?.id==draft.id||s.editor?.id==draft.id){vm.showDraft(draft)}}
-                } else {
-                    if(s.loading&&!s.refreshing&&s.memos.isEmpty()) items(3) {SkeletonRow()}
-                    if((!s.loading||s.refreshing)&&s.memos.isEmpty())item {
-                        val filtered=s.page==UiPage.NOTES&&(s.keyword.isNotBlank()||s.tag!=null)
-                        EmptyFeed(if(filtered)"没有找到记录" else if(s.page==UiPage.ARCHIVE)"归档为空" else "写下此刻的想法",
-                            if(s.offline)"当前只搜索已缓存的内容，联网后可以查找更多。"
-                            else if(filtered)"试试其他关键词或标签。"
-                            else if(s.page==UiPage.ARCHIVE)"归档后的笔记会出现在这里，可随时恢复。"
-                            else "文字、图片或一段音频，都值得留住。",
-                            icon=if(filtered)MmIcon.SEARCH else if(s.page==UiPage.ARCHIVE)MmIcon.ARCHIVE else MmIcon.NOTES)
-                    }
-                    items(s.memos,key={it.name}) {memo->
-                        MemoRow(memo,s.selected?.name==memo.name,audio,vm,onGallery,compact)
-                    }
-                    if(s.hasMore)item {Box(Modifier.fillMaxWidth().padding(top=12.dp),contentAlignment=Alignment.Center){MmButton(if(s.loading&&!s.refreshing)"正在加载…" else "加载更多",vm::loadMore,enabled=!s.loading)}}
-                    else if(s.memos.isNotEmpty())item {Text(if(s.offline)"以上为已缓存内容" else "已显示全部记录",Modifier.fillMaxWidth().padding(vertical=28.dp),color=c.secondary,style=MaterialTheme.typography.labelSmall)}
-                }
+                shared.error?.let {error->item(key="error") {
+                    StateBanner(error,error=true,action={MmButton("关闭提示",vm::dismissError)})
+                }}
+                if(drafts.isEmpty())item {EmptyFeed("还没有草稿","编辑未发送的内容会自动保存在这里。",MmIcon.DRAFT)}
+                items(drafts,key={it.id}) {draft->DraftRow(draft,shared.draftDetail?.id==draft.id||shared.editor?.id==draft.id){vm.showDraft(draft)}}
             }
-            if(canRefresh)PullToRefreshDefaults.Indicator(
-                state=refreshState,isRefreshing=s.refreshing,
-                modifier=Modifier.align(Alignment.TopCenter).testTag("feedRefreshIndicator"),
-                containerColor=c.background,color=c.ink,
-            )
+        }
+    }
+}
+
+@Composable
+private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean) {
+    val s=page.state
+    val shared=vm.state
+    val c=LocalMemaoColors.current
+    val notes=page.page==UiPage.NOTES
+    val title=page.page.title+if(notes)s.tag?.let {" #$it"}.orEmpty() else ""
+    key(page.accountId,page.scrollKey) {
+        TrackPageScroll(page)
+        val refreshState=rememberPullToRefreshState()
+        Column(Modifier.fillMaxSize().testTag("feedPage")) {
+            MmTopBar(title)
+            Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().pullToRefresh(
+                state=refreshState,isRefreshing=s.refreshing,enabled=!s.loading,onRefresh=page::pullRefresh,
+            )) {
+                if(!s.cacheReady)Column(Modifier.fillMaxSize().padding(horizontal=24.dp,vertical=16.dp)) {
+                    repeat(3) {SkeletonRow()}
+                }
+                else LazyColumn(Modifier.fillMaxSize().testTag("feedList").semantics {
+                    if(!s.loading)customActions=listOf(CustomAccessibilityAction(if(notes)"刷新笔记" else "刷新归档") {page.pullRefresh();true})
+                },state=page.listState,contentPadding=PaddingValues(horizontal=if(compact)20.dp else 24.dp,vertical=16.dp)) {
+                    item(key="header") {
+                        Column {
+                            Text(if(notes)LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日")) else "已归档的记录",color=c.secondary,style=MaterialTheme.typography.labelSmall)
+                            Spacer(Modifier.height(16.dp))
+                            if(notes) {
+                                MmField(s.keyword,vm::setKeyword,"",placeholder="搜索你的记录",inputTag="search",trailing={if(s.keyword.isNotEmpty())MmIconButton(MmIcon.CLOSE,"清除关键词"){vm.setKeyword("")}else Box(Modifier.size(48.dp),contentAlignment=Alignment.Center){LineIcon(MmIcon.SEARCH,tint=c.secondary)}})
+                                Spacer(Modifier.height(16.dp))
+                            }
+                            MmRule()
+                        }
+                    }
+                    shared.error?.let {error->item(key="error") {
+                        Column(Modifier.padding(vertical=12.dp)) {
+                            Text(error,color=c.danger,style=MaterialTheme.typography.bodySmall)
+                            Row {MmButton("重试",{vm.dismissError();page.refresh()});MmButton("关闭提示",vm::dismissError)}
+                            MmRule()
+                        }
+                    }}
+                    if(s.loading&&!s.refreshing&&s.memos.isEmpty())items(3) {SkeletonRow()}
+                    if((!s.loading||s.refreshing)&&s.memos.isEmpty())item {
+                        val filtered=notes&&(s.keyword.isNotBlank()||s.tag!=null)
+                        EmptyFeed(if(filtered)"没有找到记录" else if(!notes)"归档为空" else "写下此刻的想法",
+                            if(shared.offline)"当前只搜索已缓存的内容，联网后可以查找更多。"
+                            else if(filtered)"试试其他关键词或标签。"
+                            else if(!notes)"归档后的笔记会出现在这里，可随时恢复。"
+                            else "文字、图片或一段音频，都值得留住。",
+                            icon=if(filtered)MmIcon.SEARCH else if(!notes)MmIcon.ARCHIVE else MmIcon.NOTES)
+                    }
+                    items(s.memos,key={it.name}) {memo->MemoRow(memo,shared.selected?.name==memo.name,audio,vm,onGallery,compact)}
+                    if(s.hasMore)item {Box(Modifier.fillMaxWidth().padding(top=12.dp),contentAlignment=Alignment.Center){MmButton(if(s.loading&&!s.refreshing)"正在加载…" else "加载更多",page::loadMore,enabled=!s.loading)}}
+                    else if(s.memos.isNotEmpty())item {Text(if(shared.offline)"以上为已缓存内容" else "已显示全部记录",Modifier.fillMaxWidth().padding(vertical=28.dp),color=c.secondary,style=MaterialTheme.typography.labelSmall)}
+                }
+                PullToRefreshDefaults.Indicator(
+                    state=refreshState,isRefreshing=s.refreshing,
+                    modifier=Modifier.align(Alignment.TopCenter).testTag("feedRefreshIndicator"),
+                    containerColor=c.background,color=c.ink,
+                )
+            }
         }
     }
 }
