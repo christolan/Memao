@@ -1,7 +1,6 @@
 package com.xiaojiwei.memao.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,15 +12,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.xiaojiwei.memao.media.AudioState
 import com.xiaojiwei.memao.model.ConflictChoice
 import com.xiaojiwei.memao.model.Draft
-import com.xiaojiwei.memao.model.Memo
 import com.xiaojiwei.memao.model.SendResult
 import com.xiaojiwei.memao.ui.theme.LocalMemaoColors
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -33,47 +28,8 @@ fun DetailPane(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
         s.conflict!=null -> ConflictPage(vm,s.conflict)
         s.editor!=null -> EditorPage(vm,audio,onGallery)
         s.draftDetail!=null -> key(s.draftDetail.id) {DraftDetail(vm,s.draftDetail,audio,onGallery,single)}
-        s.selected!=null -> key(s.selected.name) {MemoDetail(vm,s.selected,audio,onGallery,single)}
-        else -> Column(Modifier.fillMaxSize()) {
-            // A pending detail request must retain compact navigation and back.
-            if(single)MmTopBar(s.page.title,vm::back)
-            MmEmpty("选择一条记录","在左侧打开笔记，或点击「＋」记录新的想法。",Modifier.weight(1f))
-        }
+        else -> Unit
     }
-}
-
-@Composable
-private fun MemoDetail(vm:MemaoViewModel,memo:Memo,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit,single:Boolean) {
-    val s=vm.state;val c=LocalMemaoColors.current;val clipboard=LocalClipboardManager.current
-    var deleting by remember(memo.name){mutableStateOf(false)}
-    Column(Modifier.fillMaxSize()) {
-        MmTopBar(if(memo.archived)"归档笔记" else "笔记",if(single)vm::back else null) {
-            MmIconButton(MmIcon.COPY,"复制正文") {clipboard.setText(AnnotatedString(memo.content));vm.notify("已复制正文")}
-            if(memo.archived)MmIconButton(MmIcon.UNARCHIVE,"取消归档",enabled=!s.busy&&!s.offline){vm.archiveMemo(memo)}
-            else MmIconButton(MmIcon.ARCHIVE,"归档笔记",enabled=!s.busy&&!s.offline){vm.archiveMemo(memo)}
-            MmIconButton(MmIcon.DELETE,"删除笔记",enabled=!s.busy&&!s.offline,danger=true){deleting=true}
-        }
-        s.error?.let {StateBanner(it,error=true,action={MmIconButton(MmIcon.CLOSE,"关闭错误提示",onClick=vm::dismissError)})}
-        val key="detail:${memo.name}";val initial=vm.scroll(key)
-        val scroll=rememberScrollState(initial.second)
-        LaunchedEffect(memo.name,scroll){snapshotFlow {scroll.value}.distinctUntilChanged().collect {vm.saveScroll(key,0,it)}}
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal=if(single)24.dp else 28.dp,vertical=28.dp),verticalArrangement=Arrangement.spacedBy(20.dp)) {
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                Text(displayTime(memo.createTime),Modifier.weight(1f),color=c.secondary,style=MaterialTheme.typography.bodySmall)
-                LineIcon(visibilityIcon(memo.visibility),tint=c.secondary);Spacer(Modifier.width(6.dp))
-                Text(visibilityLabel(memo.visibility),color=c.secondary,style=MaterialTheme.typography.bodySmall)
-            }
-            if(memo.content.isNotBlank())Markdown(memo.content)
-            AttachmentList(memo.attachments.map(vm::media),audio,{vm.loadMedia(it)},{vm.loadMedia(it,true)},vm.audio::seekTo,onGallery)
-            Text(if(s.complete==true)"正文和附件已完整缓存，可离线编辑。" else if(s.offline)"附件未完整缓存，联网补齐后可编辑。" else "编辑前会补齐附件并保存到本机。",color=c.secondary,style=MaterialTheme.typography.bodySmall)
-        }
-        MmRule()
-        Row(Modifier.fillMaxWidth().padding(16.dp),horizontalArrangement=Arrangement.End,verticalAlignment=Alignment.CenterVertically) {
-            MmButton(if(s.busy)"正在准备…" else "编辑",vm::editSelected,Modifier.testTag("editMemo"),primary=true,enabled=!s.busy&&(!s.offline||s.complete==true),icon=MmIcon.EDIT)
-        }
-    }
-    if(deleting)MmDialog("删除这条笔记？","此操作会删除服务端的笔记及关联附件，无法在本 APP 中恢复。",onDismiss={deleting=false},
-        actions={MmButton("取消",{deleting=false});MmButton("删除笔记",{deleting=false;vm.deleteMemo(memo)},danger=true)})
 }
 
 @Composable

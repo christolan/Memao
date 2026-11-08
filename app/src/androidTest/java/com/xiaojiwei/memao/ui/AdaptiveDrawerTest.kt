@@ -260,18 +260,18 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("search").assertTextEquals("记录")
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("memo:${otherTag.name}"))
         compose.onNodeWithTag("memo:${otherTag.name}").assertIsDisplayed().assertTextContains(otherTag.content).performClick()
-        compose.waitUntil(10_000) { vm.state.selected?.name == otherTag.name }
-        compose.onNode(hasTestTag("pageTitle") and hasAnySibling(hasContentDescription("复制正文"))).assertTextEquals("笔记")
+        compose.runOnIdle { assertTrue(!vm.state.paneOpen); assertEquals(null, vm.state.editor) }
+        compose.onNode(feedTitle).assertTextEquals("笔记")
         compose.onAllNodes(hasText("#旅行") and outsideDrawer).assertCountEquals(0)
-        saveScreenshot("tag-display-list-detail.png")
+        saveScreenshot("tag-display-list-inline.png")
         compose.onNodeWithTag("navArchive").performScrollTo().performClick()
         compose.waitUntil(10_000) { vm.state.page == UiPage.ARCHIVE && vm.state.memos.singleOrNull()?.name == archived.name }
         compose.onNode(feedTitle).assertTextEquals("归档")
         compose.onNodeWithTag("memo:${archived.name}").assertTextContains(archived.content).performClick()
-        compose.waitUntil(10_000) { vm.state.selected?.name == archived.name }
-        compose.onNode(hasTestTag("pageTitle") and hasAnySibling(hasContentDescription("复制正文"))).assertTextEquals("归档笔记")
+        compose.runOnIdle { assertTrue(!vm.state.paneOpen); assertEquals(null, vm.state.editor) }
+        compose.onNode(feedTitle).assertTextEquals("归档")
         compose.onAllNodesWithText("#存档").assertCountEquals(0)
-        saveScreenshot("tag-display-archive-detail.png")
+        saveScreenshot("tag-display-archive-inline.png")
     }
 
     @Test fun loginNeverShowsNavigationAtEitherWidth() {

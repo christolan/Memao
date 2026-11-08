@@ -306,47 +306,90 @@ class MemaoRepository(
 
     fun newDraft(accountId: String): Draft = Draft(accountId = accountId)
 
-    suspend fun prepareEdit(accountId: String, name: String): Draft = withContext(Dispatchers.IO) {
-        initialized.await()
-        dao.drafts(accountId).map { ModelCodec.draft(it.payload) }.firstOrNull { it.memoName == name }?.let { return@withContext it }
-        val memo = openMemo(accountId, name)
-        val lease = "edit:${newUid()}"
-        localLock.withLock {
-            account(accountId)
-            temporaryPins[lease] = memo.attachments.map { attachment ->
-                val cached = dao.blob(accountId, attachment.name)
-                if (cached?.id == attachmentKey(accountId, attachment)) cached.path
-                else blobFile(accountId, attachmentKey(accountId, attachment)).absolutePath
-            }.toSet()
-        }
+    data class PreparedEdit(val draft: Draft, val created: Boolean)
+
+    suspend fun prepareEdit(accountId: String, name: String): Draft = prepareEditSession(accountId, name).draft
+
+    suspend fun prepareEditSession(accountId: String, name: String): PreparedEdit {
+        var prepared: PreparedEdit? = null
         try {
-            for (attachment in memo.attachments) {
-                if (localAttachment(accountId, attachment) == null) {
-                    try { ensureAttachment(accountId, attachment) }
-                    catch (cancelled: CancellationException) { throw cancelled }
-                    catch (error: Exception) { throw IOException("此笔记的附件尚未完整缓存，请联网补齐后编辑", error) }
-                }
-            }
-            localLock.withLock {
-                account(accountId)
-                val items = memo.attachments.map { attachment ->
-                    val file = localAttachment(accountId, attachment) ?: throw IOException("附件缓存已被清理，请联网补齐后编辑")
-                    DraftAttachment(filename = attachment.filename, type = attachment.type, size = file.length(), localPath = file.absolutePath, original = attachment)
-                }
-                val result = Draft(accountId = accountId, memoName = name, content = memo.content, attachments = items, baseMemo = memo)
-                dao.putDraft(draftRecord(result))
-                // Local DB now owns the references before the temporary lease is released.
-                temporaryPins.remove(lease)
-                result
-            }
-        } finally {
-            withContext(NonCancellable) {
+            return withContext(Dispatchers.IO) {
+                initialized.await()
+                dao.drafts(accountId).map { ModelCodec.draft(it.payload) }.firstOrNull { it.memoName == name }?.let { return@withContext PreparedEdit(it, created = false) }
+                val memo = openMemo(accountId, name)
+                val lease = "edit:${newUid()}"
                 localLock.withLock {
-                    temporaryPins.remove(lease)
-                    // Failed preparation must not leave its formerly pinned files over quota.
-                    trimCacheLocked()
+                    account(accountId)
+                    temporaryPins[lease] = memo.attachments.map { attachment ->
+                        val cached = dao.blob(accountId, attachment.name)
+                        if (cached?.id == attachmentKey(accountId, attachment)) cached.path
+                        else blobFile(accountId, attachmentKey(accountId, attachment)).absolutePath
+                    }.toSet()
+                }
+                try {
+                    for (attachment in memo.attachments) {
+                        if (localAttachment(accountId, attachment) == null) {
+                            try { ensureAttachment(accountId, attachment) }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (error: Exception) { throw IOException("此笔记的附件尚未完整缓存，请联网补齐后编辑", error) }
+                        }
+                    }
+                    localLock.withLock {
+                        account(accountId)
+                        // Another preparation may have finished while this request cached its attachments.
+                        dao.drafts(accountId).map { ModelCodec.draft(it.payload) }.firstOrNull { it.memoName == name }
+                            ?.let { return@withLock PreparedEdit(it, created = false) }
+                        val items = memo.attachments.map { attachment ->
+                            val file = localAttachment(accountId, attachment) ?: throw IOException("附件缓存已被清理，请联网补齐后编辑")
+                            DraftAttachment(filename = attachment.filename, type = attachment.type, size = file.length(), localPath = file.absolutePath, original = attachment)
+                        }
+                        val result = Draft(accountId = accountId, memoName = name, content = memo.content, attachments = items, baseMemo = memo)
+                        // Register before the suspending write: cancellation can arrive after Room
+                        // committed the row but before putDraft resumes this coroutine.
+                        prepared = PreparedEdit(result, created = true)
+                        dao.putDraft(draftRecord(result))
+                        // Local DB now owns the references before the temporary lease is released.
+                        temporaryPins.remove(lease)
+                        prepared!!
+                    }
+                } finally {
+                    withContext(NonCancellable) {
+                        localLock.withLock {
+                            temporaryPins.remove(lease)
+                            // Failed preparation must not leave its formerly pinned files over quota.
+                            trimCacheLocked()
+                        }
+                    }
                 }
             }
+        } catch (cancelled: CancellationException) {
+            // Also catches prompt cancellation after IO produced a draft but before its caller
+            // received it. The protected copy must not become an orphaned, untouched draft.
+            withContext(NonCancellable) {
+                prepared?.takeIf { it.created }?.let { discardUnchangedEdit(it.draft, it.draft) }
+            }
+            throw cancelled
+        }
+    }
+
+    /** Only a caller-owned new editing copy can be passed here; existing drafts stay untouched. */
+    suspend fun discardUnchangedEdit(baseline: Draft, expected: Draft): Boolean = withContext(Dispatchers.IO) {
+        initialized.await()
+        if (baseline.id != expected.id || baseline.accountId != expected.accountId ||
+            !expected.hasSameContentAs(baseline)) return@withContext false
+        localLock.withLock {
+            if (dao.account(baseline.accountId) == null) return@withLock false
+            val current = dao.draft(baseline.accountId, baseline.id)?.let { ModelCodec.draft(it.payload) }
+                ?: return@withLock false
+            val active = synchronized(activeSends) { activeSends["${baseline.accountId}:${baseline.id}"] }
+            if (active != null || dao.attempt(baseline.accountId, baseline.id) != null ||
+                current.sendState != SendState.SAVED || current.revision != expected.revision ||
+                !current.hasSameContentAs(baseline)) return@withLock false
+            dao.deleteDraft(baseline.accountId, baseline.id)
+            // Original note attachments remain ordinary cache; unused imported additions can go.
+            // Do not tombstone this id: a newer in-memory edit may still need to save safely.
+            removeUnreferencedImportsLocked()
+            true
         }
     }
 

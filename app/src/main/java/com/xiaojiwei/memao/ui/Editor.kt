@@ -61,7 +61,7 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
             MmButton("编辑",{if(s.preview)vm.togglePreview()},enabled=editable,icon=MmIcon.EDIT)
             MmButton("预览",{if(!s.preview){keyboard?.hide();vm.togglePreview()}},enabled=editable,icon=MmIcon.EYE)
             Spacer(Modifier.weight(1f))
-            Text(when {s.importing->"正在保存附件…";s.saving->"正在保存…";s.saveError!=null->"保存失败";draft.empty->"尚无内容";else->"已保存在本机"},color=if(s.saveError!=null)c.danger else c.secondary,style=MaterialTheme.typography.labelSmall)
+            Text(when {s.importing->"正在保存附件…";s.saving->"正在保存…";s.saveError!=null->"保存失败";draft.empty->"尚无内容";s.editorUnchanged->"未修改";else->"已保存在本机"},color=if(s.saveError!=null)c.danger else c.secondary,style=MaterialTheme.typography.labelSmall)
         }
         s.saveError?.let {StateBanner(it,error=true,action={MmButton("重试保存",vm::retrySave)})}
         s.error?.let {StateBanner(it,error=true,action={MmIconButton(MmIcon.CLOSE,"关闭错误提示",onClick=vm::dismissError)})}

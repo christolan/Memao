@@ -1,14 +1,27 @@
 package com.xiaojiwei.memao.ui
 
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.junit4.StateRestorationTester
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.xiaojiwei.memao.ui.theme.MemaoTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -55,5 +68,96 @@ class UiPresentationTest {
         compose.onNodeWithText("待办").assertExists()
         compose.onNodeWithText("完成").assertExists()
         compose.onNodeWithText("最后一行").assertExists()
+    }
+
+    @Test fun foldedMarkdownDistinguishesLinkTapsLongPressAndBlankSpaceAtLargeFont() {
+        val uri = "https://example.invalid/note"
+        val opened = mutableListOf<String>()
+        val expanded = mutableStateOf(false)
+        var edits = 0
+        var toggles = 0
+        var overflowing = false
+        val handler = object : UriHandler {
+            override fun openUri(uri: String) { opened.add(uri) }
+        }
+        val content = "[链接]($uri)\n普通正文\n" + "字号放大后仍按实际排版行数折叠。".repeat(16)
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(density.density, 1.8f),
+                LocalUriHandler provides handler,
+            ) {
+                MemaoTheme {
+                    FoldableMarkdown(content, expanded.value, { overflowing = it },
+                        { toggles++; expanded.value = !expanded.value }, { edits++ },
+                        modifier = Modifier.width(320.dp), compact = true)
+                }
+            }
+        }
+        val text = compose.onNodeWithTag("memoLineText", useUnmergedTree = true)
+        fun layout(): TextLayoutResult {
+            val layouts = mutableListOf<TextLayoutResult>()
+            text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            return layouts.single()
+        }
+        val folded = layout()
+        assertEquals(6, folded.lineCount)
+        compose.runOnIdle { assertTrue(overflowing) }
+        val linkPoint = folded.getBoundingBox(0).center
+        text.performTouchInput { longClick(linkPoint) }
+        compose.runOnIdle { assertEquals(1, edits); assertEquals(0, toggles); assertTrue(opened.isEmpty()) }
+
+        text.performTouchInput { click(linkPoint) }
+        compose.runOnIdle { assertEquals(listOf(uri), opened); assertEquals(0, toggles); assertEquals(1, edits) }
+
+        val plainPoint = folded.getBoundingBox(folded.layoutInput.text.text.indexOf("普通")).center
+        text.performTouchInput { click(plainPoint) }
+        compose.runOnIdle { assertTrue(expanded.value); assertEquals(1, toggles); assertEquals(listOf(uri), opened) }
+        assertTrue(layout().lineCount > 6)
+
+        // getOffsetForPosition alone maps this empty area to the final link character.
+        // Only a hit inside that character's actual bounding box may open the URI.
+        val current = layout()
+        val blankPoint = Offset(current.size.width - 8f, current.getBoundingBox(0).center.y)
+        assertTrue(blankPoint.x > current.getBoundingBox(1).right)
+        text.performTouchInput { click(blankPoint) }
+        compose.runOnIdle { assertEquals(false, expanded.value); assertEquals(2, toggles); assertEquals(listOf(uri), opened); assertEquals(1, edits) }
+        assertEquals(6, layout().lineCount)
+    }
+
+    @Test fun ellipsisInsideLongLinkExpandsWithoutOpeningHiddenLinkText() {
+        val uri = "https://example.invalid/long-link"
+        val opened = mutableListOf<String>()
+        val expanded = mutableStateOf(false)
+        val handler = object : UriHandler {
+            override fun openUri(uri: String) { opened.add(uri) }
+        }
+        val content = "[" + "这段超长链接文字用于验证折叠省略号。".repeat(24) + "]($uri)"
+        compose.setContent {
+            CompositionLocalProvider(LocalUriHandler provides handler) {
+                MemaoTheme {
+                    FoldableMarkdown(content, expanded.value, {}, { expanded.value = !expanded.value }, {},
+                        modifier = Modifier.width(240.dp), compact = true)
+                }
+            }
+        }
+        val text = compose.onNodeWithTag("memoLineText", useUnmergedTree = true)
+        fun layout(): TextLayoutResult {
+            val layouts = mutableListOf<TextLayoutResult>()
+            text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            return layouts.single()
+        }
+        val folded = layout()
+        assertEquals(6, folded.lineCount)
+        assertTrue("The target must be a real truncated line", folded.isLineEllipsized(5))
+        val ellipsis = Offset(folded.getLineRight(5) - 1f, (folded.getLineTop(5) + folded.getLineBottom(5)) / 2)
+        text.performTouchInput { click(ellipsis) }
+        compose.runOnIdle { assertTrue(expanded.value); assertTrue(opened.isEmpty()) }
+        assertTrue(layout().lineCount > 6)
+
+        // Removing the synthetic ellipsis must not disable ordinary visible link text.
+        val visibleLink = layout().getBoundingBox(0).center
+        text.performTouchInput { click(visibleLink) }
+        compose.runOnIdle { assertEquals(listOf(uri), opened); assertTrue(expanded.value) }
     }
 }

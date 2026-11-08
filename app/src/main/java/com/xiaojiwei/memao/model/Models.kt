@@ -100,6 +100,10 @@ data class Draft(
 ) {
     val isNew: Boolean get() = memoName == null
     val empty: Boolean get() = content.isBlank() && attachments.isEmpty()
+
+    /** Cursor, preview, timestamps and save metadata do not change a note's contents. */
+    fun hasSameContentAs(other: Draft): Boolean = memoName == other.memoName &&
+        content == other.content && attachments == other.attachments
 }
 
 enum class ConflictChoice { KEEP_SERVER, OVERWRITE, SAVE_AS_NEW }

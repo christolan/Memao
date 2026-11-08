@@ -2,6 +2,7 @@ package com.xiaojiwei.memao.ui
 
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.SavedStateHandle
@@ -74,6 +75,9 @@ abstract class MemoListViewModel(
 ) : ListPageViewModel(saved) {
     var state by mutableStateOf(MemoListState())
         private set
+    // Reading state belongs to this page session: it survives navigation and resizing,
+    // but a new app session or account switch starts with every memo collapsed.
+    val expandedMemos = mutableStateMapOf<String, Boolean>()
     val query: MemoQuery
         get() = MemoQuery(archived = page == UiPage.ARCHIVE, keyword = state.keyword, tag = state.tag)
     override val scrollKey: String get() = "feed:$page:${state.keyword}:${state.tag}"
@@ -89,6 +93,7 @@ abstract class MemoListViewModel(
         observed?.cancel(); request?.cancel(); search?.cancel()
         resetAccount(id)
         entered = false
+        expandedMemos.clear()
         state = MemoListState(
             keyword = if (page == UiPage.NOTES && id != null) saved["keyword:$id"] ?: "" else "",
             tag = if (page == UiPage.NOTES && id != null) saved["tag:$id"] else null,

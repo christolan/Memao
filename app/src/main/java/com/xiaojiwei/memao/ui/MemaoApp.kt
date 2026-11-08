@@ -110,7 +110,7 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                     }
                 }
             }
-            BackHandler(!drawerVisible&&(s.editor!=null||s.paneOpen||s.conflict!=null||s.page==UiPage.ACCOUNTS||(s.page==UiPage.LOGIN&&s.accountId!=null))) {
+            BackHandler(!drawerVisible&&(s.editor!=null||s.paneOpen||s.conflict!=null||s.preparingMemo!=null||s.page==UiPage.ACCOUNTS||(s.page==UiPage.LOGIN&&s.accountId!=null))) {
                 if(imeVisible)keyboard?.hide() else vm.back()
             }
             // The sheet handles open/predictive back; intercept back during the opening animation too.
@@ -149,6 +149,7 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                             s.account?.takeIf {it.needsAuthentication}?.let {
                                 StateBanner("访问令牌已失效","缓存和草稿仍保留，更新令牌后可发送。",action={MmButton("更新令牌",{vm.showLogin(it)})})
                             }
+                            if(s.preparingMemo!=null)StateBanner("正在准备编辑…","正在读取正文与附件。",action={MmButton("取消",vm::back)})
                             if(s.page==UiPage.LOGIN) {
                                 LoginPage(s,onConnect,if(s.accountId!=null)({vm.back()})else null,Modifier.weight(1f))
                             } else if(s.page==UiPage.ACCOUNTS) {
@@ -162,9 +163,9 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                                     feed={
                                         CompositionLocalProvider(LocalOpenNavigationDrawer provides if(showDetail)null else openDrawer) {
                                             when(s.page) {
-                                                UiPage.DRAFTS->DraftsPage(vm,vm.drafts,wide)
-                                                UiPage.ARCHIVE->ArchivePage(vm,vm.archive,audio,showGallery,wide)
-                                                else->NotesPage(vm,vm.notes,audio,showGallery,wide)
+                                                UiPage.DRAFTS->DraftsPage(vm,vm.drafts,wide&&showDetail)
+                                                UiPage.ARCHIVE->ArchivePage(vm,vm.archive,audio,showGallery,wide&&showDetail)
+                                                else->NotesPage(vm,vm.notes,audio,showGallery,wide&&showDetail)
                                             }
                                         }
                                     },
@@ -209,7 +210,7 @@ private fun AdaptivePanes(wide:Boolean,showDetail:Boolean,modifier:Modifier=Modi
     ) {children,constraints->
         val width=constraints.maxWidth
         val height=constraints.maxHeight
-        if(wide) {
+        if(wide&&showDetail) {
             val divider=1.dp.roundToPx()
             val listWidth=(width-divider)/3
             val left=children[0].measure(Constraints.fixed(listWidth,height))

@@ -2,12 +2,15 @@ package com.xiaojiwei.memao.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.pullToRefresh
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -17,10 +20,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.xiaojiwei.memao.media.AudioState
 import com.xiaojiwei.memao.model.Draft
@@ -135,7 +141,11 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
                             else "文字、图片或一段音频，都值得留住。",
                             icon=if(filtered)MmIcon.SEARCH else if(!notes)MmIcon.ARCHIVE else MmIcon.NOTES)
                     }
-                    items(s.memos,key={it.name}) {memo->MemoRow(memo,shared.selected?.name==memo.name,audio,vm,onGallery,compact)}
+                    items(s.memos,key={it.name}) {memo->
+                        MemoRow(memo,shared.editor?.memoName==memo.name,audio,vm,onGallery,compact,
+                            expanded=page.expandedMemos[memo.name]==true,
+                            onToggle={if(page.expandedMemos[memo.name]==true)page.expandedMemos.remove(memo.name)else page.expandedMemos[memo.name]=true})
+                    }
                     if(s.hasMore)item {Box(Modifier.fillMaxWidth().padding(top=12.dp),contentAlignment=Alignment.Center){MmButton(if(s.loading&&!s.refreshing)"正在加载…" else "加载更多",page::loadMore,enabled=!s.loading)}}
                     else if(s.memos.isNotEmpty())item {Text(if(shared.offline)"以上为已缓存内容" else "已显示全部记录",Modifier.fillMaxWidth().padding(vertical=28.dp),color=c.secondary,style=MaterialTheme.typography.labelSmall)}
                 }
@@ -150,23 +160,48 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
 }
 
 @Composable
-private fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewModel,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean) {
+private fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewModel,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean,expanded:Boolean,onToggle:()->Unit) {
     val c=LocalMemaoColors.current
+    val clipboard=LocalClipboardManager.current
+    val shared=vm.state
+    var overflowing by remember(memo.content) {mutableStateOf(false)}
+    var menuOpen by remember {mutableStateOf(false)}
+    var deleting by remember {mutableStateOf(false)}
+    val toggle={if(overflowing)onToggle()}
+    val edit={if(!shared.busy)vm.editMemo(memo)}
     Column(Modifier.fillMaxWidth().then(if(selected)Modifier.background(c.soft,RoundedCornerShape(8.dp))else Modifier).padding(vertical=20.dp)) {
-        Row(Modifier.fillMaxWidth().clickable{vm.openMemo(memo)}.heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().combinedClickable(onClick={},onLongClickLabel="编辑笔记",onLongClick=edit).heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) {
             Text(displayTime(memo.createTime),Modifier.weight(1f),color=c.secondary,style=MaterialTheme.typography.labelSmall)
             if(memo.visibility!="PRIVATE")Text(visibilityLabel(memo.visibility),color=c.secondary,style=MaterialTheme.typography.labelSmall)
+            Box {
+                MmIconButton(MmIcon.MORE,"笔记操作",modifier=Modifier.testTag("memoActions:${memo.name}")){menuOpen=true}
+                DropdownMenu(expanded=menuOpen,onDismissRequest={menuOpen=false},containerColor=c.background) {
+                    DropdownMenuItem(text={Text("编辑",color=c.ink)},leadingIcon={LineIcon(MmIcon.EDIT)},enabled=!shared.busy,onClick={menuOpen=false;edit()})
+                    DropdownMenuItem(text={Text("复制正文",color=c.ink)},leadingIcon={LineIcon(MmIcon.COPY)},onClick={menuOpen=false;clipboard.setText(AnnotatedString(memo.content));vm.notify("已复制正文")})
+                    DropdownMenuItem(text={Text(if(memo.archived)"取消归档" else "归档笔记",color=c.ink)},leadingIcon={LineIcon(if(memo.archived)MmIcon.UNARCHIVE else MmIcon.ARCHIVE)},enabled=!shared.busy&&!shared.offline,onClick={menuOpen=false;vm.archiveMemo(memo)})
+                    DropdownMenuItem(text={Text("删除笔记",color=c.danger)},leadingIcon={LineIcon(MmIcon.DELETE,tint=c.danger)},enabled=!shared.busy&&!shared.offline,onClick={menuOpen=false;deleting=true})
+                }
+            }
         }
-        Box(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("memo:${memo.name}").clickable(role=Role.Button){vm.openMemo(memo)}.padding(vertical=4.dp)) {
-            if(memo.content.isNotBlank())Markdown(memo.content,compact=compact)
+        if(shared.preparingMemo==memo.name)Text("正在准备编辑…",color=c.secondary,style=MaterialTheme.typography.bodySmall)
+        Box(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("memo:${memo.name}")
+            .semantics {stateDescription=if(!overflowing)"全文" else if(expanded)"已展开" else "已折叠"}
+            .combinedClickable(role=Role.Button,onClickLabel=if(overflowing)if(expanded)"收起正文" else "展开正文" else null,
+                onClick=toggle,onLongClickLabel="编辑笔记",onLongClick=edit).padding(vertical=4.dp)) {
+            if(memo.content.isNotBlank())FoldableMarkdown(memo.content,expanded,{overflowing=it},toggle,edit,compact=compact)
             else Text(if(memo.attachments.any {it.isImage})"图片记录" else "音频记录",color=c.secondary,style=MaterialTheme.typography.bodySmall)
         }
+        if(overflowing)Text(if(expanded)"收起" else "展开全文",Modifier.testTag("memoToggle:${memo.name}").heightIn(min=48.dp)
+            .combinedClickable(role=Role.Button,onClick=onToggle,onLongClickLabel="编辑笔记",onLongClick=edit).padding(vertical=12.dp),
+            color=c.secondary,style=MaterialTheme.typography.labelSmall)
         if(memo.attachments.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
             AttachmentList(memo.attachments.map(vm::media),audio,{vm.loadMedia(it)},{vm.loadMedia(it,true)},vm.audio::seekTo,onGallery,compact)
         }
     }
     MmRule()
+    if(deleting)MmDialog("删除这条笔记？","此操作会删除服务端的笔记及关联附件，无法在本 APP 中恢复。",onDismiss={deleting=false},
+        actions={MmButton("取消",{deleting=false});MmButton("删除笔记",{deleting=false;vm.deleteMemo(memo)},danger=true)})
 }
 
 @Composable

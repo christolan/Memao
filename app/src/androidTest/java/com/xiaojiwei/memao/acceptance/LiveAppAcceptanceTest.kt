@@ -14,6 +14,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -21,6 +22,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTextInputSelection
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextRange
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -125,9 +127,7 @@ class LiveAppAcceptanceTest {
             waitAbsent("memo:${second.name}")
 
             stage = "编辑退出后自动保存修改草稿"
-            compose.onNodeWithTag("memo:${first.name}", useUnmergedTree = true).performClick()
-            waitTag("editMemo")
-            compose.onNodeWithTag("editMemo", useUnmergedTree = true).performClick()
+            compose.onNodeWithTag("memo:${first.name}", useUnmergedTree = true).performTouchInput { longClick() }
             waitTag("editorBody")
             compose.onNodeWithTag("editorBody", useUnmergedTree = true).performTextReplacement(editedContent)
             val selection = TextRange(2, 5)
@@ -164,14 +164,13 @@ class LiveAppAcceptanceTest {
             stage = "归档与恢复"
             go("navNotes")
             waitTag("memo:${first.name}")
-            compose.onNodeWithTag("memo:${first.name}", useUnmergedTree = true).performClick()
-            waitTag("editMemo")
-            compose.onNodeWithContentDescription("归档笔记", useUnmergedTree = true).performClick()
+            compose.onNodeWithTag("memoActions:${first.name}", useUnmergedTree = true).performClick()
+            compose.onNodeWithText("归档笔记").performClick()
             compose.waitUntil(30_000) { runBlocking { gateway.get(account, first.name).archived } }
             go("navArchive")
             waitTag("memo:${first.name}")
-            compose.onNodeWithTag("memo:${first.name}", useUnmergedTree = true).performClick()
-            compose.onNodeWithContentDescription("取消归档", useUnmergedTree = true).performClick()
+            compose.onNodeWithTag("memoActions:${first.name}", useUnmergedTree = true).performClick()
+            compose.onNodeWithText("取消归档").performClick()
             compose.waitUntil(30_000) { runBlocking { !gateway.get(account, first.name).archived } }
             go("navNotes")
             waitTag("memo:${first.name}")

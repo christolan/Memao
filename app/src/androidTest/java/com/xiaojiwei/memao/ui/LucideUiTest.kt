@@ -190,13 +190,13 @@ class LucideUiTest {
         compose.waitUntil(10_000) { vm.state.accountId != null }
         compose.runOnIdle { vm.navigate(UiPage.ARCHIVE) }
         compose.waitUntil(10_000) { vm.state.memos.any { it.name == archived.name } }
-        compose.onNodeWithTag("memo:${archived.name}").performClick()
-        compose.onNodeWithContentDescription("取消归档").assertIsEnabled()
-        saveScreenshot("lucide-detail-compact-light.png", "app-fixture")
+        compose.onNodeWithTag("memoActions:${archived.name}").performClick()
+        compose.onNodeWithText("取消归档").assertIsEnabled()
+        saveScreenshot("lucide-menu-compact-light.png", "app-fixture")
         compose.runOnIdle { width.value = 1000.dp; vm.setTheme(ThemeMode.DARK) }
         compose.waitUntil(10_000) { vm.state.settings.theme == ThemeMode.DARK }
-        saveScreenshot("lucide-detail-expanded-dark.png", "app-fixture")
-        compose.onNodeWithContentDescription("取消归档").performClick()
+        saveScreenshot("lucide-menu-expanded-dark.png", "app-fixture")
+        compose.onNodeWithText("取消归档").performClick()
         compose.waitUntil(10_000) { vm.state.message == "已恢复到笔记列表" }
         assertEquals("NORMAL", gateway.memo?.state)
         assertEquals(listOf(UpdateMemo(archived.name, state = "NORMAL")), gateway.updates)

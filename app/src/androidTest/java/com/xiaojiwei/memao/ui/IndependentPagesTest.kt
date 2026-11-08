@@ -319,11 +319,13 @@ class IndependentPagesTest {
 
         navigate(vm, UiPage.NOTES)
         gateway.archiveRemotely(original[1].name)
-        compose.runOnIdle { vm.openMemo(original[1]) }
+        compose.runOnIdle { vm.editMemo(original[1]) }
         compose.waitUntil(10_000) {
-            !vm.state.paneOpen && vm.notes.state.memos.none { it.name == original[1].name } &&
+            vm.state.editor?.memoName == original[1].name && vm.notes.state.memos.none { it.name == original[1].name } &&
                 vm.archive.state.memos.any { it.name == original[1].name && it.archived }
         }
+        compose.runOnIdle { vm.back() }
+        compose.waitUntil(10_000) { vm.state.editor == null }
         navigate(vm, UiPage.ARCHIVE)
         compose.runOnIdle { assertTrue(vm.state.memos.any { it.name == original[1].name }) }
         assertEquals("Remote state reconciliation should not list either page again", before, gateway.callCount())
