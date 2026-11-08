@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextRange
@@ -34,6 +35,8 @@ import com.xiaojiwei.memao.domain.MemaoRepository
 import com.xiaojiwei.memao.model.*
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -166,13 +169,13 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("navigationDrawer").assertIsDisplayed()
         compose.onNodeWithTag("tag:$longTag").assertIsSelected()
         compose.onNodeWithTag("navNotes").assertTextEquals("笔记")
-        val title = compose.onNode(hasTestTag("pageTitle") and hasAnySibling(hasContentDescription("刷新笔记")))
+        val title = compose.onNode(hasTestTag("pageTitle") and hasText("笔记 #$longTag"))
         title.assertTextEquals("笔记 #$longTag").assertIsDisplayed()
         compose.onNodeWithTag("activeTagFilter").assertDoesNotExist()
         val titleLayout = mutableListOf<TextLayoutResult>()
         title.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(titleLayout) }
         assertTrue("The title must keep its existing two-line limit", titleLayout.single().lineCount <= 2)
-        compose.onNodeWithContentDescription("刷新笔记").assertIsDisplayed().assertHasClickAction()
+        compose.onNodeWithContentDescription("刷新笔记").assertDoesNotExist()
         val tagLayout = mutableListOf<TextLayoutResult>()
         compose.onNode(hasText("#$longTag") and hasAnyAncestor(hasTestTag("tag:$longTag")) and hasAnyAncestor(hasTestTag("navigationDrawer")), useUnmergedTree = true)
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(tagLayout) }
@@ -195,7 +198,7 @@ class AdaptiveDrawerTest {
         val otherKeyword = Memo("memos/walk", "散步 #日常", "users/1", createTime = "2026-11-06T00:00:00Z", tags = listOf("日常"))
         val archived = Memo("memos/archived", "归档正文 #存档", "users/1", state = "ARCHIVED", tags = listOf("存档"))
         val vm = start(DrawerGateway(memos = matching + otherTag + otherKeyword + archived))
-        val feedTitle = hasTestTag("pageTitle") and hasAnySibling(hasContentDescription("刷新笔记"))
+        val feedTitle = hasTestTag("pageTitle") and hasAnyAncestor(hasTestTag("feedPage"))
         val outsideDrawer = !hasAnyAncestor(hasTestTag("navigationDrawer")) and !hasAnyAncestor(hasTestTag("inactiveNavigationDrawer"))
         compose.onNode(feedTitle).assertTextEquals("笔记")
         compose.onNodeWithTag("search").performTextInput("记录")
@@ -379,6 +382,87 @@ class AdaptiveDrawerTest {
         compose.runOnIdle { assertEquals(UiPage.NOTES, vm.state.page) }
     }
 
+    @Test fun pullRefreshKeepsFiltersPreventsDuplicatesAndSeparatesPagination() {
+        val memo = Memo("memos/refresh", "记录 #日常", "users/1", tags = listOf("日常"))
+        val gateway = DrawerGateway(listOf(memo))
+        val vm = start(gateway)
+        compose.onNodeWithContentDescription("刷新笔记").assertDoesNotExist()
+        compose.runOnIdle { vm.setTag("日常"); vm.setKeyword("记录") }
+        compose.waitUntil(10_000) { !vm.state.loading && vm.state.memos.size == 1 && gateway.lastQuery?.keyword == "记录" }
+        val before = gateway.listCalls.get()
+        val gate = CompletableDeferred<Unit>()
+        gateway.listGate = gate
+        gateway.nextPageToken = "next"
+        pullFeed()
+        compose.waitUntil(10_000) { gateway.listCalls.get() == before + 1 }
+        compose.onNodeWithTag("feedRefreshIndicator").assertIsDisplayed()
+        saveScreenshot("pull-refresh-active.png")
+        pullFeed()
+        compose.runOnIdle {
+            assertEquals(before + 1, gateway.listCalls.get())
+            assertEquals("记录", vm.state.keyword)
+            assertEquals("日常", vm.state.tag)
+        }
+        gate.complete(Unit)
+        compose.waitUntil(10_000) { !vm.state.loading && vm.state.hasMore }
+        compose.onNodeWithTag("memo:memos/refresh").assertIsDisplayed()
+
+        val pageGate = CompletableDeferred<Unit>()
+        gateway.listGate = pageGate
+        compose.onNodeWithText("加载更多").performScrollTo().performClick()
+        compose.waitUntil(10_000) { gateway.listCalls.get() == before + 2 }
+        compose.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo.Indeterminate)).assertCountEquals(0)
+        saveScreenshot("pull-refresh-pagination.png")
+        pageGate.complete(Unit)
+        compose.waitUntil(10_000) { !vm.state.loading }
+
+        gateway.listGate = null
+        gateway.failure = java.io.IOException("fixture offline")
+        compose.onNodeWithTag("feedList").performScrollToIndex(0)
+        pullFeed()
+        compose.waitUntil(10_000) { gateway.listCalls.get() == before + 3 && !vm.state.loading }
+        compose.runOnIdle { assertTrue(vm.state.offline) }
+        compose.onNodeWithTag("memo:memos/refresh").assertIsDisplayed()
+        compose.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo.Indeterminate)).assertCountEquals(0)
+        saveScreenshot("pull-refresh-offline.png")
+    }
+
+    @Test fun pullRefreshWorksForEmptyResultsAndArchiveButNotDrafts() {
+        val gateway = DrawerGateway()
+        val vm = start(gateway)
+        compose.runOnIdle { vm.setKeyword("不存在") }
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitUntil(10_000) { !vm.state.loading && gateway.listCalls.get() >= 2 }
+        var before = gateway.listCalls.get()
+        pullFeed()
+        compose.waitUntil(10_000) { gateway.listCalls.get() == before + 1 && !vm.state.loading }
+        compose.runOnIdle { assertEquals("不存在", vm.state.keyword) }
+        compose.onNodeWithText("没有找到记录").assertIsDisplayed()
+        saveScreenshot("pull-refresh-empty.png")
+
+        compose.runOnIdle { width.value = 1000.dp; vm.navigate(UiPage.ARCHIVE) }
+        compose.waitUntil(10_000) { !vm.state.loading && vm.state.page == UiPage.ARCHIVE }
+        before = gateway.listCalls.get()
+        pullFeed()
+        compose.waitUntil(10_000) { gateway.listCalls.get() == before + 1 && !vm.state.loading }
+        compose.onNodeWithText("归档为空").assertIsDisplayed()
+        compose.onNodeWithContentDescription("刷新笔记").assertDoesNotExist()
+        saveScreenshot("pull-refresh-archive-expanded.png")
+
+        compose.runOnIdle { vm.navigate(UiPage.DRAFTS) }
+        compose.waitUntil(10_000) { vm.state.page == UiPage.DRAFTS }
+        before = gateway.listCalls.get()
+        pullFeed()
+        compose.runOnIdle { assertEquals(before, gateway.listCalls.get()) }
+        compose.onNodeWithTag("feedRefreshIndicator").assertDoesNotExist()
+    }
+
+    private fun pullFeed() {
+        compose.onNodeWithTag("feedList").performTouchInput {
+            swipe(Offset(width * .5f, height * .25f), Offset(width * .5f, height * .9f), 500)
+        }
+    }
+
     private fun drawerX(): Float = compose.onNodeWithTag("navigationDrawer").fetchSemanticsNode().positionInRoot.x
 
     private fun tapScrim() {
@@ -440,10 +524,21 @@ class AdaptiveDrawerTest {
 
     private class DrawerGateway(val memos: List<Memo> = emptyList()) : MemosGateway {
         var publishes = 0
+        val listCalls = AtomicInteger()
+        @Volatile var listGate: CompletableDeferred<Unit>? = null
+        @Volatile var nextPageToken = ""
+        @Volatile var failure: Exception? = null
+        @Volatile var lastQuery: MemoQuery? = null
         override suspend fun inspect(serverUrl: String, token: String) = ConnectionInfo("users/1", "测试账号", version = "0.31.0")
-        override suspend fun list(account: Account, query: MemoQuery, pageToken: String) = MemoPage(memos.filter {
-            it.archived == query.archived && (query.keyword.isEmpty() || it.content.contains(query.keyword)) && (query.tag == null || query.tag in it.tags)
-        })
+        override suspend fun list(account: Account, query: MemoQuery, pageToken: String): MemoPage {
+            lastQuery = query
+            listCalls.incrementAndGet()
+            listGate?.await()
+            failure?.let { throw it }
+            return MemoPage(memos.filter {
+                it.archived == query.archived && (query.keyword.isEmpty() || it.content.contains(query.keyword)) && (query.tag == null || query.tag in it.tags)
+            }, nextPageToken)
+        }
         override suspend fun tags(account: Account) = memos.flatMap { it.tags }.groupingBy { it }.eachCount().map { (tag, count) -> TagCount(tag, count) }
         override suspend fun get(account: Account, name: String): Memo = memos.first { it.name == name }
         override suspend fun create(account: Account, request: CreateMemo): Memo { publishes++; error("Must not publish") }

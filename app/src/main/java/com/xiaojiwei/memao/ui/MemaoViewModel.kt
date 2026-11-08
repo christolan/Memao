@@ -29,7 +29,7 @@ data class MemaoUiState(
     val memos:List<Memo> = emptyList(),val drafts:List<Draft> = emptyList(),val tags:List<TagCount> = emptyList(),
     val keyword:String = "",val tag:String? = null,val selected:Memo? = null,val draftDetail:Draft? = null,
     val editor:Draft? = null,val preview:Boolean = false,val editorNew:Boolean = false,
-    val paneOpen:Boolean = false,val loading:Boolean = false,val busy:Boolean = false,
+    val paneOpen:Boolean = false,val loading:Boolean = false,val refreshing:Boolean = false,val busy:Boolean = false,
     val sending:Boolean = false,val importing:Boolean = false,val hasMore:Boolean = false,
     val offline:Boolean = false,val error:String? = null,val message:String? = null,
     val saveError:String? = null,val saving:Boolean = false,val complete:Boolean? = null,
@@ -53,6 +53,7 @@ class MemaoViewModel(
     private var searchJob:Job?=null
     private var memoLoadJob:Job?=null
     private var memoRequestId=0L
+    private var feedRequestId=0L
     private var editVersion=0L
     private val saveMutex=Mutex()
     private val mediaJobs=mutableMapOf<String,Job>()
@@ -74,12 +75,14 @@ class MemaoViewModel(
             repository.activeAccountId.collectLatest {id ->
                 if(id!=state.accountId) {
                     cancelMemoRequest()
+                    feedRequestId++
+                    searchJob?.cancel()
                     audio.stop()
                     mediaJobs.values.forEach {it.cancel()};mediaJobs.clear()
                     state=state.copy(
                         accountId=id,editor=null,draftDetail=null,selected=null,conflict=null,
                         memos=emptyList(),drafts=emptyList(),tags=emptyList(),cache=null,complete=null,
-                        hasMore=false,loading=false,paneOpen=false,sending=false,importing=false,saving=false,
+                        hasMore=false,loading=false,refreshing=false,paneOpen=false,sending=false,importing=false,saving=false,
                         files=emptyMap(),loadingFiles=emptySet(),error=null,saveError=null,message=null,
                         preview=false,editorNew=false,gallery=null,
                     )
@@ -127,10 +130,15 @@ class MemaoViewModel(
         }
     }
     fun loginError(message:String){state=state.copy(loginError=message)}
-    fun showLogin(account:Account?=null) {leaveEditor {state=state.copy(page=UiPage.LOGIN,pendingAuthentication=account,loginError=null)}}
+    fun showLogin(account:Account?=null) {leaveEditor {
+        feedRequestId++;searchJob?.cancel()
+        state=state.copy(page=UiPage.LOGIN,pendingAuthentication=account,loginError=null,loading=false,refreshing=false)
+    }}
     fun navigate(page:UiPage) {
         leaveEditor {
-            state=state.copy(page=page,paneOpen=false,selected=null,draftDetail=null,error=null,conflict=null)
+            feedRequestId++
+            searchJob?.cancel()
+            state=state.copy(page=page,paneOpen=false,selected=null,draftDetail=null,error=null,conflict=null,loading=false,refreshing=false)
             if(page==UiPage.NOTES||page==UiPage.ARCHIVE){subscribeFeed();refresh()}
             if(page==UiPage.SETTINGS)loadCache()
         }
@@ -149,37 +157,54 @@ class MemaoViewModel(
     }
     fun setKeyword(value:String) {
         cancelMemoRequest()
-        state=state.copy(keyword=value,selected=null,paneOpen=false)
+        feedRequestId++
+        state=state.copy(keyword=value,selected=null,paneOpen=false,loading=false,refreshing=false)
         state.accountId?.let {saved["keyword:$it"]=value}
         searchJob?.cancel();searchJob=viewModelScope.launch {delay(300);subscribeFeed();refresh()}
     }
     fun setTag(value:String?) {
         cancelMemoRequest()
-        state=state.copy(tag=value,selected=null,paneOpen=false)
+        feedRequestId++
+        searchJob?.cancel()
+        state=state.copy(tag=value,selected=null,paneOpen=false,loading=false,refreshing=false)
         state.accountId?.let {saved["tag:$it"]=value}
         subscribeFeed();refresh()
     }
-    fun refresh() {
+    fun refresh()=refresh(false)
+    fun pullRefresh() {
+        if(state.loading||(state.page!=UiPage.NOTES&&state.page!=UiPage.ARCHIVE))return
+        searchJob?.cancel()
+        subscribeFeed()
+        refresh(true)
+    }
+    private fun refresh(showRefreshIndicator:Boolean) {
         val id=state.accountId?:return
         val q=query()
+        val page=state.page
+        val requestId=++feedRequestId
+        fun isCurrentRequest()=requestId==feedRequestId&&state.accountId==id&&state.page==page&&q==query()
+        // Set this before launching so repeated gestures cannot enqueue a second refresh.
+        state=state.copy(loading=true,refreshing=showRefreshIndicator,error=null)
         viewModelScope.launch {
-            state=state.copy(loading=true,error=null)
             try {
                 val result=repository.refresh(id,q)
-                if(state.accountId==id&&q==query())state=state.copy(hasMore=result.hasMore,offline=result.offline)
+                if(isCurrentRequest())state=state.copy(hasMore=result.hasMore,offline=result.offline)
                 if(!result.offline)runCatching {repository.tags(id)}.getOrNull()?.let {if(state.accountId==id)state=state.copy(tags=it)}
-            }catch(e:Exception){if(e is CancellationException)throw e;if(state.accountId==id)state=state.copy(error=readable(e))}
-            finally {if(state.accountId==id&&q==query())state=state.copy(loading=false)}
+            }catch(e:Exception){if(e is CancellationException)throw e;if(isCurrentRequest())state=state.copy(error=readable(e))}
+            finally {if(isCurrentRequest())state=state.copy(loading=false,refreshing=false)}
         }
     }
     fun loadMore() {
         if(state.loading||!state.hasMore)return
         val id=state.accountId?:return;val q=query()
+        val page=state.page
+        val requestId=++feedRequestId
+        fun isCurrentRequest()=requestId==feedRequestId&&state.accountId==id&&state.page==page&&q==query()
+        state=state.copy(loading=true,refreshing=false)
         viewModelScope.launch {
-            state=state.copy(loading=true)
-            try {val p=repository.loadMore(id,q);if(state.accountId==id&&q==query())state=state.copy(hasMore=p.hasMore,offline=p.offline)}
-            catch(e:Exception){report(e)}
-            finally {if(state.accountId==id)state=state.copy(loading=false)}
+            try {val p=repository.loadMore(id,q);if(isCurrentRequest())state=state.copy(hasMore=p.hasMore,offline=p.offline)}
+            catch(e:Exception){if(e is CancellationException)throw e;if(isCurrentRequest())report(e)}
+            finally {if(isCurrentRequest())state=state.copy(loading=false)}
         }
     }
     fun openMemo(memo:Memo) {
