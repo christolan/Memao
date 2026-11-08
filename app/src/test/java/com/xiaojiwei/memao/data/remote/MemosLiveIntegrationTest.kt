@@ -244,6 +244,40 @@ class MemosLiveIntegrationTest {
         }
     }
 
+    @Test fun isolatedServerUntaggedFilterCombinesSearchAndPagination() = runBlocking {
+        withLiveFixture { fixture ->
+            val marker = "untagged-${newUid()}"
+            val plain = (1..3).map { fixture.create("$marker Alpha item $it", emptyList()) }
+            val namedTag = fixture.create("$marker Alpha #无标签", emptyList())
+            val ordinaryTag = fixture.create("$marker Alpha #work", emptyList())
+            val archived = fixture.create("$marker Alpha archived", emptyList())
+            fixture.gateway.update(fixture.account, UpdateMemo(archived.name, state = "ARCHIVED"))
+            val query = MemoQuery(keyword = "$marker alpha", untagged = true, pageSize = 2)
+            val first = fixture.gateway.list(fixture.account, query)
+            assertEquals(2, first.memos.size)
+            assertTrue(first.nextPageToken.isNotEmpty())
+            val second = fixture.gateway.list(fixture.account, query, first.nextPageToken)
+            assertEquals(1, second.memos.size)
+            assertTrue(second.nextPageToken.isEmpty())
+            val actual = first.memos + second.memos
+            assertEquals(plain.map { it.name }.toSet(), actual.map { it.name }.toSet())
+            assertTrue(actual.all { it.tags.isEmpty() && !it.archived })
+            assertEquals(5, fixture.gateway.list(fixture.account, MemoQuery(keyword = marker)).memos.size)
+            assertEquals(listOf(namedTag.name), fixture.gateway.list(fixture.account,
+                MemoQuery(keyword = marker, tag = "无标签")).memos.map { it.name })
+            assertEquals(listOf(ordinaryTag.name), fixture.gateway.list(fixture.account,
+                MemoQuery(keyword = marker, tag = "work")).memos.map { it.name })
+            assertTrue(fixture.gateway.list(fixture.account,
+                query.copy(keyword = "$marker absent")).memos.isEmpty())
+
+            // Removing/adding the final tag must immediately change filter membership.
+            fixture.gateway.update(fixture.account, UpdateMemo(namedTag.name, content = "$marker Alpha now plain"))
+            fixture.gateway.update(fixture.account, UpdateMemo(plain.first().name, content = "$marker Alpha #work"))
+            val changed = fixture.gateway.list(fixture.account, query.copy(pageSize = 30)).memos
+            assertEquals((plain.drop(1).map { it.name } + namedTag.name).toSet(), changed.map { it.name }.toSet())
+        }
+    }
+
     private suspend fun withLiveFixture(
         http: OkHttpClient = OkHttpClient(),
         block: suspend (LiveFixture) -> Unit,

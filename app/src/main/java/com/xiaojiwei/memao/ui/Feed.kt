@@ -98,7 +98,7 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
     val shared=vm.state
     val c=LocalMemaoColors.current
     val notes=page.page==UiPage.NOTES
-    val title=page.page.title+if(notes)s.tag?.let {" #$it"}.orEmpty() else ""
+    val title=page.page.title+if(notes){if(s.untagged)" 无标签" else s.tag?.let {" #$it"}.orEmpty()}else ""
     key(page.accountId,page.scrollKey) {
         TrackPageScroll(page)
         val refreshState=rememberPullToRefreshState()
@@ -133,7 +133,7 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
                     }}
                     if(s.loading&&!s.refreshing&&s.memos.isEmpty())items(3) {SkeletonRow()}
                     if((!s.loading||s.refreshing)&&s.memos.isEmpty())item {
-                        val filtered=notes&&(s.keyword.isNotBlank()||s.tag!=null)
+                        val filtered=notes&&(s.keyword.isNotBlank()||s.tag!=null||s.untagged)
                         EmptyFeed(if(filtered)"没有找到记录" else if(!notes)"归档为空" else "写下此刻的想法",
                             if(shared.offline)"当前只搜索已缓存的内容，联网后可以查找更多。"
                             else if(filtered)"试试其他关键词或标签。"

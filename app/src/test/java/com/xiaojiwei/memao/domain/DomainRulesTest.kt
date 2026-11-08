@@ -30,6 +30,28 @@ class DomainRulesTest {
         assertEquals("abc 中文 Ää", DomainRules.asciiFold("ABC 中文 Ää"))
     }
 
+    @Test fun untaggedFilterUsesServerTagsAndIntersectsKeywordAndArchiveState() {
+        val untagged = Memo("memos/plain", "Hello WORLD #not-a-server-tag", "users/1")
+        val query = MemoQuery(untagged = true, keyword = "hello world")
+        assertTrue(DomainRules.matches(untagged, query))
+        assertFalse(DomainRules.matches(untagged.copy(tags = listOf("无标签")), query))
+        assertFalse(DomainRules.matches(untagged.copy(tags = listOf("日常")), query))
+        assertFalse(DomainRules.matches(untagged.copy(state = "ARCHIVED"), query))
+        assertFalse(DomainRules.matches(untagged.copy(content = "other text"), query))
+        assertTrue(DomainRules.matches(untagged.copy(content = "", attachments = listOf(Attachment("attachments/photo", "图.png", "image/png"))), MemoQuery(untagged = true)))
+    }
+
+    @Test fun ordinaryTagNamedUntaggedAndAllRemainDistinctFromUntaggedFilter() {
+        val plain = Memo("memos/plain", "", "users/1")
+        val named = plain.copy(name = "memos/named", tags = listOf("无标签"))
+        assertTrue(DomainRules.matches(plain, MemoQuery()))
+        assertTrue(DomainRules.matches(named, MemoQuery()))
+        assertFalse(DomainRules.matches(plain, MemoQuery(tag = "无标签")))
+        assertTrue(DomainRules.matches(named, MemoQuery(tag = "无标签")))
+        assertTrue(DomainRules.matches(plain, MemoQuery(untagged = true)))
+        assertFalse(DomainRules.matches(named, MemoQuery(untagged = true)))
+    }
+
     @Test fun conflictsCompareContentAndAttachmentsEvenWithinSameTimestamp() {
         val attachment = Attachment("attachments/1", "原图.png", "image/png", 7)
         val base = Memo("memos/1", "旧内容", "users/1", updateTime = "2026-10-26T00:00:00Z", attachments = listOf(attachment))

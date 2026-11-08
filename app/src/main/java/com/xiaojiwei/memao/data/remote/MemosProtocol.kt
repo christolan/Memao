@@ -58,7 +58,8 @@ object MemosProtocol {
         resourceName(userName, "users")
         append("creator == ").append(literal(userName)).append(" && space == null")
         if (!query.archived) {
-            query.tag?.takeIf { it.isNotEmpty() }?.let {
+            if (query.untagged) append(" && size(tags) == 0")
+            else query.tag?.takeIf { it.isNotEmpty() }?.let {
                 append(" && ").append(literal(it)).append(" in tags")
             }
             if (query.keyword.isNotEmpty()) append(" && content.contains(")

@@ -29,7 +29,7 @@ data class MemaoUiState(
     val accounts:List<Account> = emptyList(), val accountId:String? = null,
     val settings:AppSettings = AppSettings(),val page:UiPage = UiPage.LOGIN,
     val memos:List<Memo> = emptyList(),val drafts:List<Draft> = emptyList(),val tags:List<TagCount> = emptyList(),
-    val keyword:String = "",val tag:String? = null,val draftDetail:Draft? = null,
+    val keyword:String = "",val tag:String? = null,val untagged:Boolean = false,val draftDetail:Draft? = null,
     val editor:Draft? = null,val preview:Boolean = false,val editorNew:Boolean = false,val editorUnchanged:Boolean = false,
     val paneOpen:Boolean = false,val loading:Boolean = false,val refreshing:Boolean = false,val busy:Boolean = false,
     val sending:Boolean = false,val importing:Boolean = false,val hasMore:Boolean = false,
@@ -86,7 +86,7 @@ class MemaoViewModel(
             val localDrafts=drafts.state.drafts
             return shellState.copy(
                 memos=list?.memos.orEmpty(),drafts=localDrafts,tags=notes.state.tags,
-                keyword=notes.state.keyword,tag=notes.state.tag,
+                keyword=notes.state.keyword,tag=notes.state.tag,untagged=notes.state.untagged,
                 loading=list?.loading?:false,refreshing=list?.refreshing?:false,hasMore=list?.hasMore?:false,
                 busy=shellState.busy||shellState.preparingMemo!=null,
                 editorUnchanged=shellState.editor?.let {current->editorBaseline?.let(current::hasSameContentAs)}?:false,
@@ -193,6 +193,11 @@ class MemaoViewModel(
         cancelMemoRequest()
         shellState=shellState.copy(paneOpen=false,error=null)
         notes.setTag(value)
+    }
+    fun setUntagged(value:Boolean) {
+        cancelMemoRequest()
+        shellState=shellState.copy(paneOpen=false,error=null)
+        notes.setUntagged(value)
     }
     fun refresh(){currentList?.refresh()}
     fun pullRefresh(){currentList?.pullRefresh()}

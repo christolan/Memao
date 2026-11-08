@@ -23,7 +23,8 @@ object DomainRules {
     fun asciiFold(value: String): String = value.map { if (it in 'A'..'Z') it + 32 else it }.joinToString("")
 
     fun matches(memo: Memo, query: MemoQuery): Boolean =
-        memo.archived == query.archived && (query.tag == null || query.tag in memo.tags) &&
+        memo.archived == query.archived &&
+            (if (query.untagged) memo.tags.isEmpty() else query.tag == null || query.tag in memo.tags) &&
             asciiFold(memo.content).contains(asciiFold(query.keyword))
 
     fun sameBase(left: Memo, right: Memo): Boolean =

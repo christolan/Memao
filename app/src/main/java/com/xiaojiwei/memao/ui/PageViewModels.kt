@@ -65,6 +65,7 @@ data class MemoListState(
     val error: String? = null,
     val keyword: String = "",
     val tag: String? = null,
+    val untagged: Boolean = false,
     val tags: List<TagCount> = emptyList(),
 )
 
@@ -79,8 +80,8 @@ abstract class MemoListViewModel(
     // but a new app session or account switch starts with every memo collapsed.
     val expandedMemos = mutableStateMapOf<String, Boolean>()
     val query: MemoQuery
-        get() = MemoQuery(archived = page == UiPage.ARCHIVE, keyword = state.keyword, tag = state.tag)
-    override val scrollKey: String get() = "feed:$page:${state.keyword}:${state.tag}"
+        get() = MemoQuery(archived = page == UiPage.ARCHIVE, keyword = state.keyword, tag = state.tag, untagged = state.untagged)
+    override val scrollKey: String get() = "feed:$page:${state.keyword}:${state.tag}:${state.untagged}"
     private var observed: Job? = null
     private var request: Job? = null
     private var search: Job? = null
@@ -94,9 +95,11 @@ abstract class MemoListViewModel(
         resetAccount(id)
         entered = false
         expandedMemos.clear()
+        val untagged = page == UiPage.NOTES && id != null && saved.get<Boolean>("untagged:$id") == true
         state = MemoListState(
             keyword = if (page == UiPage.NOTES && id != null) saved["keyword:$id"] ?: "" else "",
-            tag = if (page == UiPage.NOTES && id != null) saved["tag:$id"] else null,
+            tag = if (page == UiPage.NOTES && id != null && !untagged) saved["tag:$id"] else null,
+            untagged = untagged,
         )
         observeQuery()
     }
@@ -121,24 +124,29 @@ abstract class MemoListViewModel(
 
     fun setKeyword(value: String) {
         if (page != UiPage.NOTES || value == state.keyword) return
-        changeQuery(value, state.tag, debounce = true)
+        changeQuery(value, state.tag, state.untagged, debounce = true)
     }
 
     fun setTag(value: String?) {
-        if (page != UiPage.NOTES || value == state.tag) return
-        changeQuery(state.keyword, value, debounce = false)
+        if (page != UiPage.NOTES || (value == state.tag && !state.untagged)) return
+        changeQuery(state.keyword, value, untagged = false, debounce = false)
+    }
+
+    fun setUntagged(value: Boolean) {
+        if (page != UiPage.NOTES || (value == state.untagged && state.tag == null)) return
+        changeQuery(state.keyword, null, untagged = value, debounce = false)
     }
 
     fun resetFiltersAndRefresh() {
-        if (page == UiPage.NOTES) changeQuery("", null, debounce = false)
+        if (page == UiPage.NOTES) changeQuery("", null, untagged = false, debounce = false)
     }
 
-    private fun changeQuery(keyword: String, tag: String?, debounce: Boolean) {
+    private fun changeQuery(keyword: String, tag: String?, untagged: Boolean, debounce: Boolean) {
         generation++
         request?.cancel(); search?.cancel(); observed?.cancel()
-        state = state.copy(keyword = keyword, tag = tag, memos = emptyList(), cacheReady = false, loading = false,
+        state = state.copy(keyword = keyword, tag = tag, untagged = untagged, memos = emptyList(), cacheReady = false, loading = false,
             refreshing = false, hasMore = false, error = null)
-        accountId?.let { saved["keyword:$it"] = keyword; saved["tag:$it"] = tag }
+        accountId?.let { saved["keyword:$it"] = keyword; saved["tag:$it"] = tag; saved["untagged:$it"] = untagged }
         observeQuery()
         search = viewModelScope.launch {
             if (debounce) delay(300)

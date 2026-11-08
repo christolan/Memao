@@ -23,6 +23,15 @@ class MemosProtocolTest {
             MemosProtocol.filter("users/self", MemoQuery(archived = true, keyword = "word", tag = "tag")))
     }
 
+    @Test fun untaggedFilterUsesArraySizeAndPreservesOwnerAndKeywordConstraints() {
+        assertEquals("creator == \"users/self\" && space == null && size(tags) == 0 && content.contains(\"Hello \\\"world\\\"\")",
+            MemosProtocol.filter("users/self", MemoQuery(keyword = "Hello \"world\"", untagged = true)))
+        assertEquals("creator == \"users/self\" && space == null && \"无标签\" in tags",
+            MemosProtocol.filter("users/self", MemoQuery(tag = "无标签")))
+        assertEquals("creator == \"users/self\" && space == null",
+            MemosProtocol.filter("users/self", MemoQuery(archived = true, keyword = "word", untagged = true)))
+    }
+
     @Test fun rootOriginRejectsPathsAndEmbeddedCredentials() {
         assertEquals("http://localhost:5231/", MemosProtocol.serverOrigin(" http://localhost:5231 ").toString())
         listOf("https://host/memos", "https://u:p@host", "https://host?token=value", "file:///tmp/data").forEach {

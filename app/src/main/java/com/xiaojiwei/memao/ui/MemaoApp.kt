@@ -260,10 +260,11 @@ private fun NavigationDrawer(
                 Spacer(Modifier.height(12.dp));MmRule();Spacer(Modifier.height(12.dp))
                 Column(Modifier.fillMaxWidth().testTag("drawerTagFilters")) {
                     Text("标签",Modifier.padding(horizontal=12.dp,vertical=8.dp),color=c.secondary,style=MaterialTheme.typography.labelSmall)
-                    DrawerTagFilter(null,s.tag==null){onNavigate {vm.setTag(null)}}
+                    DrawerTagFilter(null,s.tag==null&&!s.untagged){onNavigate {vm.setTag(null)}}
+                    DrawerTagFilter(null,s.untagged,untagged=true){onNavigate {vm.setUntagged(!s.untagged)}}
                     val tags=(s.tags.map {it.tag}+s.memos.flatMap {it.tags}+listOfNotNull(s.tag)).distinct()
                     tags.forEach {tag->
-                        DrawerTagFilter(tag,s.tag==tag){onNavigate {vm.setTag(if(s.tag==tag)null else tag)}}
+                        DrawerTagFilter(tag,s.tag==tag&&!s.untagged){onNavigate {vm.setTag(if(s.tag==tag)null else tag)}}
                     }
                 }
             }
@@ -283,13 +284,13 @@ private fun NavigationDrawer(
 }
 
 @Composable
-private fun DrawerTagFilter(tag:String?,selected:Boolean,onClick:()->Unit) {
+private fun DrawerTagFilter(tag:String?,selected:Boolean,untagged:Boolean=false,onClick:()->Unit) {
     val c=LocalMemaoColors.current
-    Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag(if(tag==null)"tag:all" else "tag:$tag")
+    Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag(if(untagged)"filter:untagged" else if(tag==null)"tag:all" else "tag:$tag")
         .clip(RoundedCornerShape(8.dp)).then(if(selected)Modifier.background(c.soft)else Modifier)
         .clickable(role=Role.Tab,onClick=onClick).semantics {this.selected=selected}
         .padding(horizontal=12.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
-        Text(if(tag==null)"全部" else "#$tag",Modifier.weight(1f),color=if(selected)c.ink else c.secondary,style=MaterialTheme.typography.bodyMedium)
+        Text(if(untagged)"无标签" else if(tag==null)"全部" else "#$tag",Modifier.weight(1f),color=if(selected)c.ink else c.secondary,style=MaterialTheme.typography.bodyMedium)
     }
 }
 

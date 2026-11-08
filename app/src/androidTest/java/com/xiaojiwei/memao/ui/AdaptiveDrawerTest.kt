@@ -226,7 +226,7 @@ class AdaptiveDrawerTest {
         compose.onAllNodes(hasText("#日常") and outsideDrawer).assertCountEquals(0)
         saveScreenshot("drawer-tags-compact-selected.png")
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("memo:memos/drawer18"))
-        val key = "feed:${UiPage.NOTES}:记录:日常"
+        val key = compose.runOnIdle { vm.notes.scrollKey }
         val initialIndex = compose.runOnIdle { vm.scroll(key).first }
         assertTrue("Fixture must be scrolled past its header", initialIndex > 1)
         compose.onNode(feedTitle).assertTextEquals("笔记 #日常").assertIsDisplayed()
