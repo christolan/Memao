@@ -1,0 +1,210 @@
+# Signed sideload release for pushes to main.
+#
+# Repository Actions secrets this workflow reads (names only):
+#   MEMAO_KEYSTORE_BASE64
+#   MEMAO_STORE_PASSWORD
+#   MEMAO_KEY_ALIAS
+#   MEMAO_KEY_PASSWORD
+#
+# AGP 9.4 requires JDK 17 or newer and SDK Build Tools 36.0.0. This repository
+# pins the Gradle daemon toolchain to JDK 25, so the job uses Temurin 25.
+# compileSdk release(37) resolves to platforms;android-37.0. The release
+# keystore is decoded only under RUNNER_TEMP and is never written into the workspace.
+
+name: Sideload release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: memao-sideload-latest
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Signed sideload APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
+
+      - name: Require signing secrets
+        env:
+          MEMAO_KEYSTORE_BASE64: ${{ secrets.MEMAO_KEYSTORE_BASE64 }}
+          MEMAO_STORE_PASSWORD: ${{ secrets.MEMAO_STORE_PASSWORD }}
+          MEMAO_KEY_ALIAS: ${{ secrets.MEMAO_KEY_ALIAS }}
+          MEMAO_KEY_PASSWORD: ${{ secrets.MEMAO_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in MEMAO_KEYSTORE_BASE64 MEMAO_STORE_PASSWORD MEMAO_KEY_ALIAS MEMAO_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "Missing GitHub Actions secret: ${name}"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Decode release keystore
+        env:
+          MEMAO_KEYSTORE_BASE64: ${{ secrets.MEMAO_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          keystore="${RUNNER_TEMP}/memao-release.jks"
+          printf '%s' "${MEMAO_KEYSTORE_BASE64}" | tr -d '[:space:]' | base64 -d > "${keystore}"
+          if [ ! -s "${keystore}" ]; then
+            echo "Decoded keystore is empty."
+            exit 1
+          fi
+          chmod 600 "${keystore}"
+
+      - name: Assemble signed release
+        env:
+          MEMAO_STORE_FILE: ${{ runner.temp }}/memao-release.jks
+          MEMAO_STORE_PASSWORD: ${{ secrets.MEMAO_STORE_PASSWORD }}
+          MEMAO_KEY_ALIAS: ${{ secrets.MEMAO_KEY_ALIAS }}
+          MEMAO_KEY_PASSWORD: ${{ secrets.MEMAO_KEY_PASSWORD }}
+        # Skip the configuration cache so signing passwords are not serialized into it.
+        run: ./gradlew :app:assembleRelease --stacktrace --no-configuration-cache
+
+      - name: Verify signature and package zip
+        id: package
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import shutil
+          import subprocess
+          import sys
+
+          release_dir = pathlib.Path("app/build/outputs/apk/release")
+          metadata_path = release_dir / "output-metadata.json"
+          if not metadata_path.is_file():
+              sys.exit("Release output-metadata.json was not produced.")
+          metadata = json.loads(metadata_path.read_text())
+          elements = metadata.get("elements") or []
+          if len(elements) != 1:
+              sys.exit(f"Expected one release APK, found {len(elements)}.")
+          output_file = str(elements[0].get("outputFile") or "")
+          if (
+              not output_file
+              or output_file != pathlib.Path(output_file).name
+              or "unsigned" in output_file.lower()
+          ):
+              sys.exit(f"Release APK is missing or unsigned: {output_file!r}")
+          apk_path = release_dir / output_file
+          if not apk_path.is_file():
+              sys.exit(f"Release APK was not found at {apk_path}.")
+
+          version = str(elements[0].get("versionName") or "")
+          if not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z._+-]*", version):
+              sys.exit(f"Unexpected versionName: {version!r}")
+
+          sdk_root = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
+          if not sdk_root:
+              sys.exit("ANDROID_HOME is not set, so apksigner cannot be located.")
+          signers = list(pathlib.Path(sdk_root).glob("build-tools/*/apksigner"))
+          if not signers:
+              sys.exit("apksigner was not found under Android SDK build-tools.")
+
+          def version_key(path: pathlib.Path) -> tuple:
+              parts = []
+              for piece in path.parent.name.split("."):
+                  parts.append(int(piece) if piece.isdigit() else 0)
+              return tuple(parts)
+
+          apksigner = str(sorted(signers, key=version_key)[-1])
+          verify = subprocess.run([apksigner, "verify", "--verbose", str(apk_path)])
+          if verify.returncode != 0:
+              sys.exit("apksigner verify failed. Refusing to publish an unsigned or invalid APK.")
+
+          runner_temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          apk_name = f"Memao-{version}-release.apk"
+          zip_name = f"Memao-{version}-release.zip"
+          staged_apk = runner_temp / apk_name
+          zip_path = runner_temp / zip_name
+          shutil.copy2(apk_path, staged_apk)
+          if zip_path.exists():
+              zip_path.unlink()
+          subprocess.run(["zip", "-j", "-X", str(zip_path), str(staged_apk)], check=True)
+          with zip_path.open("rb") as handle:
+              if handle.read(2) != b"PK":
+                  sys.exit("Packaged file is not a zip.")
+          subprocess.run(["unzip", "-t", str(zip_path)], check=True)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+              output.write(f"zip_name={zip_name}\n")
+              output.write(f"zip_path={zip_path}\n")
+          print(f"Packaged {zip_name}")
+          PY
+
+      - name: Upload signed sideload zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: Memao-${{ steps.package.outputs.version }}-release.zip
+          path: ${{ steps.package.outputs.zip_path }}
+          if-no-files-found: error
+          archive: "false"
+
+      - name: Update sideload-latest prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.package.outputs.version }}
+          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+          ZIP_NAME: ${{ steps.package.outputs.zip_name }}
+        run: |
+          set -euo pipefail
+          tip="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "${tip}" != "${GITHUB_SHA}" ]; then
+            echo "main is ${tip}; leaving sideload-latest unchanged for this older commit."
+            exit 0
+          fi
+          notes_file="${RUNNER_TEMP}/sideload-notes.md"
+          cat > "${notes_file}" <<EOF
+          Signed sideload build of Memao ${VERSION}.
+
+          Commit: ${GITHUB_SHA}
+          Download ${ZIP_NAME}, then install the APK inside the zip.
+          The sideload-latest tag is replaced on each successful build from main.
+          EOF
+          if gh release view sideload-latest >/dev/null 2>&1; then
+            gh release delete sideload-latest --yes --cleanup-tag
+          fi
+          gh release create sideload-latest \
+            --prerelease \
+            --latest=false \
+            --target "${GITHUB_SHA}" \
+            --title "Memao sideload latest" \
+            --notes-file "${notes_file}" \
+            "${ZIP_PATH}"
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/memao-release.jks"
