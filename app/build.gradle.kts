@@ -37,6 +37,39 @@ android {
     }
 }
 
+// Release signing stays off unless the CI keystore and passwords are present,
+// so local builds still configure without those environment variables.
+run {
+    val keystoreFile = System.getenv("MEMAO_STORE_FILE")
+        ?.takeIf { it.isNotBlank() }
+        ?.let { path -> file(path).takeIf { it.isFile } }
+    val envStorePassword = System.getenv("MEMAO_STORE_PASSWORD")?.takeIf { it.isNotBlank() }
+    val envKeyAlias = System.getenv("MEMAO_KEY_ALIAS")?.takeIf { it.isNotBlank() }
+    val envKeyPassword = System.getenv("MEMAO_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+    if (keystoreFile != null && envStorePassword != null && envKeyAlias != null && envKeyPassword != null) {
+        val configuredKeystore = keystoreFile
+        val configuredStorePassword = envStorePassword
+        val configuredKeyAlias = envKeyAlias
+        val configuredKeyPassword = envKeyPassword
+        android {
+            signingConfigs {
+                create("release") {
+                    storeFile = configuredKeystore
+                    storePassword = configuredStorePassword
+                    keyAlias = configuredKeyAlias
+                    keyPassword = configuredKeyPassword
+                    storeType = "PKCS12"
+                }
+            }
+            buildTypes {
+                release {
+                    signingConfig = signingConfigs.getByName("release")
+                }
+            }
+        }
+    }
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
