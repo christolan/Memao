@@ -90,7 +90,7 @@ jobs:
         # Skip the configuration cache so signing passwords are not serialized into it.
         run: ./gradlew :app:assembleRelease --stacktrace --no-configuration-cache
 
-      - name: Verify signature and package zip
+      - name: Verify signature and stage APK
         id: package
         run: |
           set -euo pipefail
@@ -146,30 +146,23 @@ jobs:
 
           runner_temp = pathlib.Path(os.environ["RUNNER_TEMP"])
           apk_name = f"Memao-{version}-release.apk"
-          zip_name = f"Memao-{version}-release.zip"
           staged_apk = runner_temp / apk_name
-          zip_path = runner_temp / zip_name
           shutil.copy2(apk_path, staged_apk)
-          if zip_path.exists():
-              zip_path.unlink()
-          subprocess.run(["zip", "-j", "-X", str(zip_path), str(staged_apk)], check=True)
-          with zip_path.open("rb") as handle:
-              if handle.read(2) != b"PK":
-                  sys.exit("Packaged file is not a zip.")
-          subprocess.run(["unzip", "-t", str(zip_path)], check=True)
+          if staged_apk.suffix.lower() != ".apk" or not staged_apk.is_file():
+              sys.exit("Staged release file is not an APK.")
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"version={version}\n")
-              output.write(f"zip_name={zip_name}\n")
-              output.write(f"zip_path={zip_path}\n")
-          print(f"Packaged {zip_name}")
+              output.write(f"apk_name={apk_name}\n")
+              output.write(f"apk_path={staged_apk}\n")
+          print(f"Staged {apk_name}")
           PY
 
-      - name: Upload signed sideload zip
+      - name: Upload signed sideload APK
         uses: actions/upload-artifact@v7
         with:
-          name: Memao-${{ steps.package.outputs.version }}-release.zip
-          path: ${{ steps.package.outputs.zip_path }}
+          name: Memao-${{ steps.package.outputs.version }}-release.apk
+          path: ${{ steps.package.outputs.apk_path }}
           if-no-files-found: error
           archive: "false"
 
@@ -177,8 +170,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.package.outputs.version }}
-          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
-          ZIP_NAME: ${{ steps.package.outputs.zip_name }}
+          APK_PATH: ${{ steps.package.outputs.apk_path }}
+          APK_NAME: ${{ steps.package.outputs.apk_name }}
         run: |
           set -euo pipefail
           tip="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
@@ -191,7 +184,7 @@ jobs:
           Signed sideload build of Memao ${VERSION}.
 
           Commit: ${GITHUB_SHA}
-          Download ${ZIP_NAME}, then install the APK inside the zip.
+          Download ${APK_NAME} and install it.
           The sideload-latest tag is replaced on each successful build from main.
           EOF
           if gh release view sideload-latest >/dev/null 2>&1; then
@@ -203,7 +196,7 @@ jobs:
             --target "${GITHUB_SHA}" \
             --title "Memao sideload latest" \
             --notes-file "${notes_file}" \
-            "${ZIP_PATH}"
+            "${APK_PATH}"
 
       - name: Remove decoded keystore
         if: always()
