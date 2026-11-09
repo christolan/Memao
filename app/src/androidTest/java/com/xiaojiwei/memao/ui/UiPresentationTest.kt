@@ -5,6 +5,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.platform.LocalCursorBlinkEnabled
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
@@ -19,6 +21,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.xiaojiwei.memao.ui.theme.MemaoTheme
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -54,6 +57,58 @@ class UiPresentationTest {
         compose.onNodeWithTag("connect").performScrollTo().performClick()
         compose.onNodeWithText("首版支持部署在域名根路径的 Memos。").assertExists()
         compose.runOnIdle {assertEquals(0,calls)}
+    }
+
+    @Test fun loginCaretAndPlaceholderAreVerticallyCenteredInBothFields() {
+        compose.setContent {
+            CompositionLocalProvider(LocalCursorBlinkEnabled provides false) {
+                MemaoTheme { LoginPage(MemaoUiState(), { _, _ -> }, null) }
+            }
+        }
+        assertCenteredField("server", "https://memos.example.com")
+        assertCenteredField("token", "粘贴 Memos 访问令牌")
+    }
+
+    private fun assertCenteredField(tag: String, placeholder: String) {
+        val field = compose.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val hint = compose.onNodeWithText(placeholder, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val tolerance = with(compose.density) { 1.dp.toPx() }
+        assertTrue(
+            "$tag placeholder center ${hint.center.y} should match field center ${field.center.y}; field h=${field.height} hint h=${hint.height} density=${compose.density.density}",
+            abs(hint.center.y - field.center.y) <= tolerance,
+        )
+        compose.onNodeWithTag(tag).performClick()
+        compose.waitForIdle()
+        val pixels = compose.onNodeWithTag(tag).captureToImage().toPixelMap()
+        var top = pixels.height
+        var bottom = -1
+        var hits = 0
+        for (y in 0 until pixels.height) {
+            var row = false
+            val caretColumns = (pixels.width * 0.08f).toInt().coerceAtLeast(8)
+            for (x in 0 until caretColumns) {
+                val pixel = pixels[x, y]
+                val red = (pixel.red * 255f).toInt()
+                val green = (pixel.green * 255f).toInt()
+                val blue = (pixel.blue * 255f).toInt()
+                if (abs(red - 0x24) <= 48 && abs(green - 0x26) <= 48 && abs(blue - 0x29) <= 48 && pixel.alpha > .8f) {
+                    row = true
+                    break
+                }
+            }
+            if (row) {
+                hits++
+                if (y < top) top = y
+                if (y > bottom) bottom = y
+            }
+        }
+        assertTrue("$tag should draw an ink caret", hits >= 4)
+        val caretCenter = (top + bottom) / 2f
+        val imageCenter = (pixels.height - 1) / 2f
+        assertTrue(
+            "$tag caret center $caretCenter (y $top..$bottom) image h=${pixels.height} center $imageCenter field h=${field.height}",
+            abs(caretCenter - imageCenter) <= tolerance.coerceAtLeast(1f),
+        )
     }
 
     @Test fun advancedHtmlIsPresentedAsLiteralText() {

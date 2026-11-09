@@ -60,7 +60,9 @@ fun MmField(value: String, onValueChange: (String) -> Unit, label: String, modif
         Row(Modifier.fillMaxWidth().border(1.dp,if(error!=null)c.danger else if(focused)c.ink else c.divider,RoundedCornerShape(8.dp)).padding(start=12.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically) {
             BasicTextField(value,onValueChange,modifier=Modifier.weight(1f).heightIn(min=54.dp).then(if(inputTag!=null)Modifier.testTag(inputTag)else Modifier).onFocusChanged {focused=it.isFocused}.padding(vertical=14.dp),
                 textStyle=MaterialTheme.typography.bodyLarge.copy(color=c.ink),singleLine=singleLine,enabled=enabled,visualTransformation=visualTransformation,keyboardOptions=keyboardOptions,cursorBrush=SolidColor(c.ink),
-                decorationBox={inner -> Box {if(value.isEmpty())Text(placeholder,color=c.secondary,fontSize=13.sp);inner()}})
+                // The caret is shorter than bodyLarge's 30.sp line and would otherwise
+                // sit against the top of the field. Center it with the placeholder.
+                decorationBox={inner -> Box(contentAlignment=Alignment.CenterStart) {if(value.isEmpty())Text(placeholder,color=c.secondary,fontSize=13.sp);inner()}})
             trailing?.invoke()
         }
         if(error!=null){Spacer(Modifier.height(6.dp));Text(error,color=c.danger,style=MaterialTheme.typography.bodySmall)}
