@@ -1,0 +1,7 @@
+# AGP 9.1+ repackages optimized classes into the default package. Kotlin's
+# file-facade chain is package-private (for example StringsKt__StringNumberConversionsJVMKt
+# extends StringsKt__IndentKt). Moving only the subclass out of kotlin.text makes ART throw
+# IllegalAccessError while androidx.startup.InitializationProvider is installing, so the
+# process dies before the first activity. Shrinking and renaming inside the original
+# package stay enabled; this only opts out of cross-package repackaging.
+-dontrepackage
