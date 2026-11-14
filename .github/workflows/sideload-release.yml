@@ -1,4 +1,4 @@
-# Signed sideload release for pushes to main.
+# Signed sideload release for version changes pushed to main.
 #
 # Repository Actions secrets this workflow reads (names only):
 #   MEMAO_KEYSTORE_BASE64
@@ -20,18 +20,54 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: memao-sideload-latest
-  cancel-in-progress: true
+  contents: read
 
 jobs:
+  version:
+    name: Check Android version change
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && !github.event.deleted
+    outputs:
+      changed: ${{ steps.compare.outputs.changed }}
+    steps:
+      - name: Check out repository
+        if: github.event_name == 'push'
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Compare push versions
+        id: compare
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          current="$(python3 .github/scripts/sideload-version.py)"
+          if [[ "${BEFORE}" == 0000000000000000000000000000000000000000 ]]; then
+            echo "First push to main with Android version ${current}."
+          else
+            previous="$(python3 .github/scripts/sideload-version.py "${BEFORE}")"
+            if [[ "${previous}" == "${current}" ]]; then
+              echo "Android version ${current} is unchanged. Skipping the signed release."
+              exit 0
+            fi
+            echo "Android version changed from ${previous} to ${current}."
+          fi
+          echo 'changed=true' >> "${GITHUB_OUTPUT}"
+
   release:
     name: Signed sideload APK
+    needs: version
+    if: github.event_name == 'workflow_dispatch' || needs.version.outputs.changed == 'true'
+    permissions:
+      contents: write
+    concurrency:
+      group: memao-sideload-latest
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    if: github.ref == 'refs/heads/main'
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -176,8 +212,22 @@ jobs:
           set -euo pipefail
           tip="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
           if [ "${tip}" != "${GITHUB_SHA}" ]; then
-            echo "main is ${tip}; leaving sideload-latest unchanged for this older commit."
-            exit 0
+            if [ "${GITHUB_EVENT_NAME}" = workflow_dispatch ]; then
+              echo "main moved to ${tip}. Skipping the older manual build."
+              exit 0
+            fi
+            # A follow-up push can move main without scheduling a replacement build.
+            built_version="$(python3 .github/scripts/sideload-version.py)"
+            tip_version="$(python3 .github/scripts/sideload-version.py "${tip}")"
+            if [[ "${built_version}" != "${tip_version}" ]]; then
+              echo "main moved to ${tip} with a different version. Skipping this build."
+              exit 0
+            fi
+            relation="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${GITHUB_SHA}...${tip}" --jq .status)"
+            if [[ "${relation}" != ahead ]]; then
+              echo "main moved to ${tip} outside this build's history. Skipping this build."
+              exit 0
+            fi
           fi
           notes_file="${RUNNER_TEMP}/sideload-notes.md"
           cat > "${notes_file}" <<EOF
@@ -185,7 +235,7 @@ jobs:
 
           Commit: ${GITHUB_SHA}
           Download ${APK_NAME} and install it.
-          The sideload-latest tag is replaced on each successful build from main.
+          The sideload-latest tag points to the commit used for this APK.
           EOF
           if gh release view sideload-latest >/dev/null 2>&1; then
             gh release delete sideload-latest --yes --cleanup-tag
