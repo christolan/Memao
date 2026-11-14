@@ -2,13 +2,22 @@
 
 > 本文保留各版本验收证据。当前检出与实机反馈见 [项目上下文索引](README.md#版本与验收状态)，0.1.17 输入框专项见 [I31](development-issues.md#i31-登录输入框光标偏上)。下文 APK 名称和构建路径记录当时的交付产物。
 
+## 应用内更新
+
+2026-11-14 R73 在 0.1.18（versionCode 19）加入应用内更新。入口为「设置 → Memao」。APK 与同版本的更新清单一同发布到对应的 GitHub Release，沿用官方签名密钥。工作流验签并核对 APK 实际包名和版本，在清单中记录 `versionCode`、`versionName`、`fileName`、`size` 与 `sha256`。
+
+- 检查使用公开 GitHub HTTPS 发布列表，从版本标签及发布说明读取版本，选择最高的 `versionCode`。清单和 APK 使用同一个版本的下载地址。下载前核对发布资产，下载后校验大小、SHA-256、APK 包名、版本及已安装应用的签名。应用私有缓存供本次下载与重试使用。安装由 Android PackageInstaller 确认，取消确认后可重新安装。
+- 本地 Debug、仪器测试 APK 及未签名优化 Release 构建成功。JVM 45 项通过，7 项依赖隔离 Memos 服务的用例跳过。Android 17 模拟器设置专项 8 项通过。工作流 YAML、Bash 语法及签名测试包的清单生成已验证。
+- Android 16 AOSP 模拟器使用仅监听本机的发布夹具和同一调试签名的两版测试包，走完 0.1.18（19）检查、下载、校验、首次授权、Android 确认和覆盖安装。重开后系统和设置均显示 0.1.19（20），原账号和安装前创建的未发送草稿仍可见。再次检查同一版本显示「已是最新版本」。Android 17 Play Store 模拟器另验证了系统取消后可直接重试，环境差异见 [I33](development-issues.md#i33-模拟器覆盖安装验收环境)。
+- 正式 GitHub Actions 签名发布和 Find N6／ColorOS 体验待验证。公开的 0.1.17 没有更新入口，首次使用需从侧载渠道手动覆盖安装 0.1.18；后续更高版本可在 APP 内检查。
+
 ## 侧载发布条件
 
-2026-11-14 按用户要求，向 `main` 推送时，[侧载工作流](../.github/workflows/sideload-release.yml) 比较整次推送前后的 `versionName` 和 `versionCode`。任一字段变化时自动构建并发布签名 APK 到 `sideload-latest`。同版本推送只运行版本检查，跳过打包和发布。`main` 首次推送和从 `main` 手动运行工作流也可以发布。
+2026-11-14 按用户要求，[侧载工作流](../.github/workflows/sideload-release.yml) 为每个版本创建独立的 GitHub 预发布。以 0.1.18 为例，标签为 `v0.1.18`，标题为「Memao 0.1.18」，资产为 `Memao-0.1.18-release.apk` 和 `Memao-0.1.18-update.json`。发布说明中的独立一行 `versionCode: 19` 用于应用内发现更新。版本历史见 [GitHub Releases](https://github.com/christolan/Memao/releases)。
 
-发布任务串行执行。构建期间若 `main` 推进到同版本的后续提交，自动发布仍可完成，标签指向 APK 实际使用的提交。若 `main` 已换版本或重写至另一段历史，本次构建跳过发布。
+向 `main` 推送时比较推送前后的 `versionName` 和 `versionCode`，任一变化触发构建。`main` 首次推送和从 `main` 手动运行也可以发布。发布任务串行执行。同版本重跑保留已发布的标签和文件。新版本同时递增 `versionName` 和 `versionCode`。标签指向 APK 实际构建的提交，`main` 快进到其他版本后仍可发布排队的旧版本。
 
-本地检查通过工作流 YAML、Bash 语法及发布条件。使用模拟 GitHub API 验证同版本推送、单独更改任一版本字段、首次推送、构建期间分支推进和手动发布。GitHub Actions 上的签名构建与发布待推送后验证。
+历史 `sideload-latest` 预发布保留原内容，新版本可在 Releases 列表找到。本地验证了不同版本各自发布、同版本重跑、标签冲突和已签名测试 APK 的清单生成。应用内更新专项 6 项通过，完整 JVM 测试 46 项通过、7 项依赖隔离服务的用例跳过。GitHub Actions 正式签名构建和首次版本化发布待推送后验证。
 
 ## 0.1.16 优化包启动修复与侧载发布
 

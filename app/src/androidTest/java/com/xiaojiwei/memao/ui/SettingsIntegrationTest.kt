@@ -106,6 +106,7 @@ class SettingsIntegrationTest {
         compose.waitUntil(10_000) { !vm.state.cacheClearing && vm.state.cache?.ordinaryBytes == 0L }
         compose.onNodeWithTag("clearCache").assertIsNotEnabled()
         compose.onNodeWithText("暂无可清理缓存").assertExists()
+        compose.onNodeWithTag("appUpdateAction").performScrollTo().assertTextEquals("检查更新").assertIsEnabled()
         assertEquals(before.protectedBytes, vm.state.cache!!.protectedBytes)
         runBlocking {
             drafts.forEachIndexed { index, draft ->

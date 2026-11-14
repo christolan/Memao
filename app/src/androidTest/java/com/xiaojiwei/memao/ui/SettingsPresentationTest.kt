@@ -1,11 +1,13 @@
 package com.xiaojiwei.memao.ui
 
+import android.content.Intent
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -21,12 +23,15 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.xiaojiwei.memao.R
 import com.xiaojiwei.memao.model.Account
 import com.xiaojiwei.memao.model.AppSettings
 import com.xiaojiwei.memao.model.CacheReport
 import com.xiaojiwei.memao.model.ThemeMode
 import com.xiaojiwei.memao.ui.theme.LocalMemaoColors
 import com.xiaojiwei.memao.ui.theme.MemaoTheme
+import com.xiaojiwei.memao.update.AppRelease
+import com.xiaojiwei.memao.update.UpdateState
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -177,18 +182,89 @@ class SettingsPresentationTest {
         saveScreenshot("settings-expanded-dark.png")
     }
 
+    @Test fun appUpdateKeepsCheckDownloadAndInstallationAsSeparateActions() {
+        val release = AppRelease(
+            versionName = "0.1.19",
+            versionCode = 20,
+            size = 42,
+            sha256 = "a".repeat(64),
+            fileName = "Memao-0.1.19-release.apk",
+        )
+        val update = mutableStateOf<UpdateState>(UpdateState.Unchecked)
+        var installRequests = 0
+        var confirmations = 0
+        start(appUpdate = {
+            SettingsUpdate(
+                installedVersion = "0.1.18",
+                state = update.value,
+                onCheck = { update.value = UpdateState.Checking },
+                onDownload = { update.value = UpdateState.Downloading(release, 30) },
+                onCancelDownload = { update.value = UpdateState.Available(release) },
+                onInstall = { installRequests++ },
+                onConfirm = { confirmations++ },
+            )
+        })
+
+        val action = compose.onNodeWithTag("appUpdateAction")
+        val status = compose.onNodeWithTag("appUpdateStatus")
+        fun assertAction(label: String) = action.performScrollTo().assertTextEquals(label)
+
+        compose.onNodeWithText("当前版本 0.1.18").performScrollTo().assertIsDisplayed()
+        assertAction("检查更新").performClick()
+        status.assertTextEquals("正在检查更新…")
+        action.assertIsNotEnabled()
+        compose.runOnIdle { update.value = UpdateState.Current }
+        status.assertTextEquals("已是最新版本。")
+        assertAction("检查更新").assertIsEnabled()
+        compose.runOnIdle { update.value = UpdateState.CheckFailed }
+        assertAction("重新检查").performClick()
+        compose.runOnIdle { update.value = UpdateState.Available(release) }
+        status.assertTextEquals("发现新版本 0.1.19")
+
+        assertAction("下载更新").performClick()
+        status.assertTextEquals("正在下载 30%")
+        assertAction("取消下载").performClick()
+        assertAction("下载更新").assertIsEnabled()
+        compose.runOnIdle { update.value = UpdateState.Available(release, error = R.string.memao_update_download_failed) }
+        assertAction("重试下载").assertIsEnabled()
+        compose.onNodeWithTag("appUpdateCheckAgain").performScrollTo().performClick()
+        status.assertTextEquals("正在检查更新…")
+
+        compose.runOnIdle { update.value = UpdateState.Ready(release) }
+        status.assertTextEquals("版本 0.1.19 已下载。")
+        compose.runOnIdle { assertEquals(0, installRequests) }
+        assertAction("安装更新").performClick()
+        compose.runOnIdle {
+            assertEquals(1, installRequests)
+            update.value = UpdateState.Ready(release, message = R.string.memao_update_install_permission)
+        }
+        assertAction("前往授权").performClick()
+        compose.runOnIdle {
+            assertEquals(2, installRequests)
+            update.value = UpdateState.Confirm(release, Intent())
+        }
+        assertAction("打开安装确认").performClick()
+        compose.runOnIdle {
+            assertEquals(1, confirmations)
+            update.value = UpdateState.Installing(release)
+        }
+        status.assertTextEquals("正在安装…")
+        action.assertIsNotEnabled()
+    }
+
     private fun start(
         onTheme: (ThemeMode) -> Unit = { ui.value = ui.value.copy(settings = AppSettings(it)) },
         onAccounts: () -> Unit = {},
         onLoadCache: () -> Unit = {},
         onClearCache: () -> Unit = {},
+        appUpdate: @Composable () -> Unit = {},
     ) {
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale.value)) {
                 MemaoTheme(darkTheme = ui.value.settings.theme == ThemeMode.DARK) {
                     Box(Modifier.requiredWidth(width.value).requiredHeight(760.dp)
                         .background(LocalMemaoColors.current.background).testTag("settings-fixture")) {
-                        SettingsContent(ui.value, onTheme, onAccounts, onLoadCache, onClearCache)
+                        SettingsContent(ui.value, onTheme, onAccounts, onLoadCache, onClearCache, appUpdate = appUpdate)
                     }
                 }
             }

@@ -1,5 +1,10 @@
 package com.xiaojiwei.memao.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,16 +14,20 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
@@ -29,13 +38,49 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
+import com.xiaojiwei.memao.R
 import com.xiaojiwei.memao.model.ThemeMode
 import com.xiaojiwei.memao.ui.theme.LocalMemaoColors
+import com.xiaojiwei.memao.update.UpdateState
 
 @Composable
 fun SettingsPage(vm:MemaoViewModel,modifier:Modifier=Modifier) {
     LaunchedEffect(Unit) {vm.loadCache()}
-    SettingsContent(vm.state,vm::setTheme,{vm.navigate(UiPage.ACCOUNTS)},vm::loadCache,vm::clearCache,modifier)
+    val updater = vm.appUpdate
+    val state by updater.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        updater.onPermissionResult()
+    }
+    val confirmation = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
+    val pendingConfirmation = state as? UpdateState.Confirm
+    LaunchedEffect(pendingConfirmation, lifecycle) {
+        if (pendingConfirmation != null && lifecycle == Lifecycle.State.RESUMED) {
+            updater.confirm(confirmation::launch)
+        }
+    }
+    SettingsContent(vm.state,vm::setTheme,{vm.navigate(UiPage.ACCOUNTS)},vm::loadCache,vm::clearCache,modifier) {
+        SettingsUpdate(
+            installedVersion = updater.installedVersionName,
+            state = state,
+            onCheck = updater::check,
+            onDownload = updater::download,
+            onCancelDownload = updater::cancelDownload,
+            onInstall = {
+                updater.install {
+                    permission.launch(
+                        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.fromParts("package", context.packageName, null)),
+                    )
+                }
+            },
+            onConfirm = { updater.confirm(confirmation::launch) },
+        )
+    }
 }
 
 /** The settings surface is independent of I/O so loading, failures and layout can be verified. */
@@ -47,6 +92,7 @@ fun SettingsContent(
     onLoadCache:()->Unit,
     onClearCache:()->Unit,
     modifier:Modifier=Modifier,
+    appUpdate:@Composable ()->Unit={},
 ) {
     val c=LocalMemaoColors.current
     Column(modifier.fillMaxWidth()) {
@@ -126,8 +172,107 @@ fun SettingsContent(
                 Spacer(Modifier.height(3.dp))
                 SettingsSupportingText("记录生活里的小事")
                 SettingsSupportingText("兼容 Memos 0.31.0 · 简体中文")
+                appUpdate()
             }
         }
+    }
+}
+
+@Composable
+internal fun SettingsUpdate(
+    installedVersion: String,
+    state: UpdateState,
+    onCheck: () -> Unit,
+    onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onInstall: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val colors = LocalMemaoColors.current
+    val status = when (state) {
+        UpdateState.Unchecked -> null
+        UpdateState.Checking -> stringResource(R.string.update_checking)
+        UpdateState.Current -> stringResource(R.string.update_current)
+        UpdateState.CheckFailed -> stringResource(R.string.update_check_failed)
+        is UpdateState.Available -> state.error?.let { stringResource(it) }
+            ?: stringResource(R.string.update_available, state.release.versionName)
+        is UpdateState.Downloading -> stringResource(R.string.update_downloading, state.percent)
+        is UpdateState.Ready -> state.message?.let { stringResource(it) }
+            ?: stringResource(R.string.update_ready, state.release.versionName)
+        is UpdateState.PreparingInstall -> stringResource(R.string.update_preparing_install)
+        is UpdateState.Confirm -> stringResource(R.string.update_confirmation)
+        is UpdateState.Installing -> stringResource(R.string.update_installing)
+        UpdateState.Installed -> stringResource(R.string.update_installed)
+    }
+    val showError = when (state) {
+        UpdateState.CheckFailed -> true
+        is UpdateState.Available -> state.error != null
+        is UpdateState.Ready -> state.message == R.string.memao_update_install_failed
+        else -> false
+    }
+    val action = when (state) {
+        is UpdateState.Available -> if (state.error == null) R.string.update_download else R.string.update_retry_download
+        is UpdateState.Downloading -> R.string.update_cancel_download
+        is UpdateState.Ready -> if (state.message == R.string.memao_update_install_permission) {
+            R.string.update_open_permissions
+        } else {
+            R.string.update_install
+        }
+        is UpdateState.Confirm -> R.string.update_confirm
+        is UpdateState.PreparingInstall, is UpdateState.Installing, UpdateState.Installed -> R.string.update_install
+        UpdateState.CheckFailed -> R.string.update_retry_check
+        else -> R.string.update_check
+    }
+    val onAction = when (state) {
+        is UpdateState.Available -> onDownload
+        is UpdateState.Downloading -> onCancelDownload
+        is UpdateState.Ready -> onInstall
+        is UpdateState.Confirm -> onConfirm
+        else -> onCheck
+    }
+    val enabled = when (state) {
+        UpdateState.Checking, is UpdateState.PreparingInstall, is UpdateState.Installing, UpdateState.Installed -> false
+        else -> true
+    }
+
+    Spacer(Modifier.height(12.dp))
+    SettingsSupportingText(stringResource(R.string.update_installed_version, installedVersion))
+    status?.let {
+        Spacer(Modifier.height(8.dp))
+        if (showError) {
+            SettingsError(it, "appUpdateStatus")
+        } else {
+            SettingsSupportingText(
+                it,
+                Modifier.testTag("appUpdateStatus").semantics {
+                    if (state !is UpdateState.Downloading) liveRegion = LiveRegionMode.Polite
+                },
+            )
+        }
+    }
+    if (state is UpdateState.Downloading) {
+        Spacer(Modifier.height(8.dp))
+        LinearProgressIndicator(
+            progress = { state.percent / 100f },
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.strong,
+            trackColor = colors.divider,
+        )
+    }
+    Spacer(Modifier.height(12.dp))
+    SettingsOutlineButton(
+        stringResource(action),
+        onAction,
+        Modifier.testTag("appUpdateAction"),
+        enabled = enabled,
+    )
+    if (state is UpdateState.Available && state.error != null) {
+        Spacer(Modifier.height(8.dp))
+        SettingsOutlineButton(
+            stringResource(R.string.update_retry_check),
+            onCheck,
+            Modifier.testTag("appUpdateCheckAgain"),
+        )
     }
 }
 

@@ -13,7 +13,7 @@
 
 ## 版本与验收状态
 
-- 2026-11-14 整理时，本地检出为 `e1e548e`，构建配置为 `0.1.15`（versionCode 16）。下列后续版本记录来自 2026-11-09 的开发与设备反馈。
+- 当前构建配置为 `0.1.18`（versionCode 19），加入 [应用内更新](development-and-acceptance.md#应用内更新)和[按版本发布](development-and-acceptance.md#侧载发布条件)。2026-11-14 核对历史侧载标签时，公开渠道仍为 `0.1.17`（18）。
 - 用户反馈 `0.1.16` 可在 Find N6／Android 16／ColorOS 上启动。[`0.1.17` 的登录输入框居中修正](development-issues.md#i31-登录输入框光标偏上) 已通过 Android 16 模拟器验证，目标设备上的居中效果仍待确认。启动问题的修复记录见 [I30](development-issues.md#i30-官方优化包启动即退出)。
 - 各版本的安装、模拟器、隔离服务端和实机证据见 [开发准备与验收](development-and-acceptance.md)。历史交付记录中的 APK 名称与构建路径用于追溯当时的产物。
 

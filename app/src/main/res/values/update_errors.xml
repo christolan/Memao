@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="memao_update_download_failed">下载失败。请检查网络后重试。</string>
+    <string name="memao_update_invalid_apk">更新包与发布信息或当前应用签名不符。请重新检查更新。</string>
+    <string name="memao_update_install_permission">请在系统设置中允许 Memao 安装未知应用，返回后再安装。</string>
+    <string name="memao_update_install_failed">系统未能安装更新。请重试。</string>
+    <string name="memao_update_install_cancelled">安装已取消。可以再次安装。</string>
+    <string name="memao_update_download_again">更新包已失效。请重新下载。</string>
+</resources>

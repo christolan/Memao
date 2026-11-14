@@ -17,6 +17,7 @@ import androidx.lifecycle.viewModelScope
 import com.xiaojiwei.memao.domain.MemaoRepository
 import com.xiaojiwei.memao.media.ForegroundAudio
 import com.xiaojiwei.memao.model.*
+import com.xiaojiwei.memao.update.AppUpdate
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.sync.Mutex
@@ -48,6 +49,7 @@ data class MemaoUiState(
 class MemaoViewModel(
     val repository:MemaoRepository, context:Context, private val saved:SavedStateHandle,
 ) : ViewModel() {
+    internal val appUpdate by lazy { AppUpdate.get(context.applicationContext) }
     private var shellState by mutableStateOf(MemaoUiState())
     private val cacheSettings=CacheSettingsController(
         scope=viewModelScope,

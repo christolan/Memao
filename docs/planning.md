@@ -163,6 +163,14 @@ R69 笔记交互已完成，默认最多 6 行、点击正文展开／收起、�
 
 已实现并完成主 Agent 验收：0.1.15（16）构建通过；47 项 JVM（含 7 项真实隔离 Memos 0.31.0 联调）及 20 项不同仪器检查均通过，共 67 项。覆盖全部／无标签／具体标签切换、关键词组合、空结果、离线缓存、分页、刷新、账号与状态恢复及真实同名标签区分。主 Agent 复核 4 张截图，已保留数据安装 PLP110／Android 17 并核验版本及冷启动；手机实际筛选体验待试用，不将模拟器通过写成实机全部体验通过。源码已提交并推送至 origin/main：[e1e548e0c5bbf939b9f9a6754dedde55cf83bc03](https://github.com/christolan/Memao/commit/e1e548e0c5bbf939b9f9a6754dedde55cf83bc03)（feat: add untagged note filtering），工作区干净。
 
+### R73 应用内更新
+
+2026-11-14 用户明确要求参考 FBNG，实现 APP 内检查更新、下载新版和覆盖安装。更新沿用 Memao 的 GitHub 签名侧载渠道。详情见 [开发与验收](development-and-acceptance.md#应用内更新)。
+
+按既有授权确定的默认流程：在「设置 → Memao」查看当前版本并手动检查。发现更高的 Android 版本号后，由用户开始下载，下载完成后点击「安装更新」进入 Android 确认。首次安装可按提示为 Memao 开启未知应用安装权限，返回后继续。更新包须通过大小、SHA-256、包名、版本和签名检查。覆盖安装应保留账号和草稿，取消安装后可重试。
+
+2026-11-14 用户要求 GitHub Release 和产物按版本命名并保留历史。标签使用 `v<versionName>`，APK 和清单文件使用同一 `versionName`，应用内按 Android `versionCode` 查找新版本。见 [侧载发布条件](development-and-acceptance.md#侧载发布条件)。
+
 ## 产品定位与使用场景
 
 已确认首版核心使用场景的优先级：
@@ -336,7 +344,7 @@ MoeMemos README 提示 Memos 更新可能引入 API 不兼容；其功能、错�
 
 阶段一至五已完成。阶段六已实现 M1—M5 全部首版功能并产出 0.1.0 debug 自用测试 APK；主 Agent 已执行 33 项 JVM、13 项 Repository、8 项 UI／媒体、2 项真实 APP 流程，合计 56 项通过。系统图片和音频选择器及强制停止后的附件原字节保存也已手测。M6 的模拟器窗口／状态检查通过，Find N6／Android 16 和实际部署仍待设备验收，不把模拟器代替目标机。
 
-安装包位于项目 app/build/outputs/apk/debug/app-debug.apk。main 已含签名旁加载工作流，Release 产物现为直接发布的 APK（`Memao-<versionName>-release.apk`），不再打包 zip；该调整已随 [PR #2](https://github.com/christolan/Memao/pull/2) 合并。侧载发布记录及本地检出版本见 [版本与验收状态](README.md#版本与验收状态)。发布下载页为 [sideload-latest](https://github.com/christolan/Memao/releases/tag/sideload-latest)。版本、签名、SHA256、升级注意事项、逐项证据与未覆盖边界见 [Memao 首版开发准备与接口核对](development-and-acceptance.md)。开发问题统一维护于 [Memao 开发问题记录](development-issues.md)。
+安装包位于项目 app/build/outputs/apk/debug/app-debug.apk。main 已含签名侧载工作流，Release 直接提供对应版本的 APK（`Memao-<versionName>-release.apk`）及更新清单。侧载发布记录及本地检出版本见 [版本与验收状态](README.md#版本与验收状态)。发布下载页为 [GitHub Releases](https://github.com/christolan/Memao/releases)。版本、签名、SHA-256、升级注意事项及逐项证据见 [Memao 首版开发准备与接口核对](development-and-acceptance.md)。开发问题统一维护于 [Memao 开发问题记录](development-issues.md)。
 
 ## 开发前确认清单
 
@@ -506,6 +514,10 @@ MoeMemos README 提示 Memos 更新可能引入 API 不兼容；其功能、错�
 项目文档统一在 [项目上下文目录](README.md) 维护。开始项目工作前，按 [项目协作规则](../AGENTS.md) 阅读本规划与任务相关文档。用户确认调整后，更新对应正文、变更记录及受影响的验收标准。
 
 ## 需求维护与变更记录
+
+2026-11-14：按用户要求，每个侧载版本使用独立的标签、发布标题与资产文件，保留旧版本下载。应用内更新改为查询版本化发布列表。
+
+2026-11-14：新增 R73 应用内更新，设置页增加检查、下载、安装和失败重试，侧载发布随 APK 提供更新清单。功能随 0.1.18（19）引入。
 
 2026-11-14：按用户要求将项目上下文统一迁入仓库根目录的 [docs/](README.md)，同步更新 [协作规则](../AGENTS.md) 和 R09。
 
