@@ -19,14 +19,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xiaojiwei.memao.media.AudioState
 import com.xiaojiwei.memao.model.Draft
@@ -98,7 +102,7 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
     val c=LocalMemaoColors.current
     val notes=page.page==UiPage.NOTES
     val topPadding=if(notes)0.dp else 16.dp
-    val horizontalPadding=if(compact)20.dp else 24.dp
+    val horizontalPadding=if(notes||compact)20.dp else 24.dp
     val title=page.page.title+if(notes){if(s.untagged)" 无标签" else s.tag?.let {" #$it"}.orEmpty()}else ""
     key(page.accountId,page.scrollKey) {
         TrackPageScroll(page)
@@ -168,12 +172,68 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
     var deleting by remember {mutableStateOf(false)}
     val toggle={if(overflowing)onToggle()}
     val edit={if(!shared.busy)vm.editMemo(memo)}
-    Column(Modifier.fillMaxWidth().then(if(selected)Modifier.background(c.soft,RoundedCornerShape(8.dp))else Modifier).padding(vertical=8.dp)) {
-        Row(Modifier.fillMaxWidth().combinedClickable(onClick={},onLongClickLabel="编辑笔记",onLongClick=edit),verticalAlignment=Alignment.CenterVertically) {
-            Text(displayTime(memo.createTime),Modifier.weight(1f),color=c.secondary,style=MaterialTheme.typography.labelSmall)
-            if(memo.visibility!="PRIVATE")Text(visibilityLabel(memo.visibility),color=c.secondary,style=MaterialTheme.typography.labelSmall)
+    val noteSpacing = 12.dp
+    val footerIconSize = 15.dp
+    val noteTextStyle = memoBodyTextStyle()
+    val footerLineHeight = with(LocalDensity.current) { noteTextStyle.lineHeight.toDp() }
+    Column(Modifier.fillMaxWidth().then(if(selected)Modifier.background(c.soft,RoundedCornerShape(8.dp))else Modifier).padding(vertical=noteSpacing)) {
+        Box(Modifier.fillMaxWidth().testTag("memo:${memo.name}")
+            .semantics {stateDescription=if(!overflowing)"全文" else if(expanded)"已展开" else "已折叠"}
+            .combinedClickable(role=Role.Button,onClickLabel=if(overflowing)if(expanded)"收起正文" else "展开正文" else null,
+                onClick=toggle,onLongClickLabel="编辑笔记",onLongClick=edit)) {
+            if(memo.content.isNotBlank())FoldableMarkdown(memo.content,expanded,{overflowing=it},toggle,edit,compact=compact)
+            else Text(if(memo.attachments.any {it.isImage})"图片记录" else "音频记录",color=c.secondary,style=noteTextStyle)
+        }
+        if(memo.attachments.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            AttachmentList(memo.attachments.map(vm::media),audio,{vm.loadMedia(it)},{vm.loadMedia(it,true)},vm.audio::seekTo,onGallery,compact)
+        }
+        Spacer(Modifier.height(noteSpacing))
+        Row(
+            modifier = Modifier.fillMaxWidth().testTag("memoFooter:${memo.name}"),
+            // The 30 dp menu's automatic 48 dp touch target extends 9 dp on either side.
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    displayTime(memo.createTime),
+                    modifier = Modifier.weight(1f).testTag("memoTime:${memo.name}")
+                        .combinedClickable(onClick = {}, onLongClickLabel = "编辑笔记", onLongClick = edit),
+                    color = c.memoFooter,
+                    style = noteTextStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (memo.visibility != "PRIVATE") {
+                    Text(visibilityLabel(memo.visibility), color = c.memoFooter, style = noteTextStyle, maxLines = 1)
+                }
+                if (overflowing) {
+                    Row(
+                        modifier = Modifier.widthIn(min = 48.dp).testTag("memoToggle:${memo.name}")
+                            .combinedClickable(role = Role.Button, onClick = onToggle, onLongClickLabel = "编辑笔记", onLongClick = edit)
+                            .padding(start = 6.dp, end = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(if (expanded) "收起" else "展开全文", color = c.memoFooter, style = noteTextStyle, maxLines = 1)
+                        LineIcon(MmIcon.DOWN, Modifier.size(footerIconSize).rotate(if (expanded) 180f else 0f), c.memoFooter)
+                    }
+                }
+            }
             Box {
-                MmIconButton(MmIcon.MORE,"笔记操作",modifier=Modifier.height(24.dp).testTag("memoActions:${memo.name}")){menuOpen=true}
+                Box(
+                    modifier = Modifier.size(width = 30.dp, height = footerLineHeight).testTag("memoActions:${memo.name}")
+                        .clickable(role = Role.Button) { menuOpen = true }
+                        .semantics { contentDescription = "笔记操作" },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    LineIcon(MmIcon.MORE, Modifier.size(footerIconSize), c.memoFooter)
+                }
                 DropdownMenu(expanded=menuOpen,onDismissRequest={menuOpen=false},containerColor=c.background) {
                     DropdownMenuItem(text={Text("编辑",color=c.ink)},leadingIcon={LineIcon(MmIcon.EDIT)},enabled=!shared.busy,onClick={menuOpen=false;edit()})
                     DropdownMenuItem(text={Text("复制正文",color=c.ink)},leadingIcon={LineIcon(MmIcon.COPY)},onClick={menuOpen=false;clipboard.setText(AnnotatedString(memo.content));vm.notify("已复制正文")})
@@ -181,20 +241,6 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
                     DropdownMenuItem(text={Text("删除笔记",color=c.danger)},leadingIcon={LineIcon(MmIcon.DELETE,tint=c.danger)},enabled=!shared.busy&&!shared.offline,onClick={menuOpen=false;deleting=true})
                 }
             }
-        }
-        Box(Modifier.fillMaxWidth().testTag("memo:${memo.name}")
-            .semantics {stateDescription=if(!overflowing)"全文" else if(expanded)"已展开" else "已折叠"}
-            .combinedClickable(role=Role.Button,onClickLabel=if(overflowing)if(expanded)"收起正文" else "展开正文" else null,
-                onClick=toggle,onLongClickLabel="编辑笔记",onLongClick=edit)) {
-            if(memo.content.isNotBlank())FoldableMarkdown(memo.content,expanded,{overflowing=it},toggle,edit,compact=compact)
-            else Text(if(memo.attachments.any {it.isImage})"图片记录" else "音频记录",color=c.secondary,style=MaterialTheme.typography.bodySmall)
-        }
-        if(overflowing)Text(if(expanded)"收起" else "展开全文",Modifier.fillMaxWidth().testTag("memoToggle:${memo.name}")
-            .combinedClickable(role=Role.Button,onClick=onToggle,onLongClickLabel="编辑笔记",onLongClick=edit),
-            color=c.secondary,style=memoBodyTextStyle(compact))
-        if(memo.attachments.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            AttachmentList(memo.attachments.map(vm::media),audio,{vm.loadMedia(it)},{vm.loadMedia(it,true)},vm.audio::seekTo,onGallery,compact)
         }
     }
     MmRule()

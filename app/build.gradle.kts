@@ -14,8 +14,8 @@ android {
         applicationId = "com.xiaojiwei.memao"
         minSdk = 34
         targetSdk = 37
-        versionCode = 23
-        versionName = "0.1.22"
+        versionCode = 24
+        versionName = "0.1.23"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

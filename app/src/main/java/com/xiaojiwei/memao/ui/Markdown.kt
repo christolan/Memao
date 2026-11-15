@@ -138,11 +138,10 @@ private fun memoTextBlocks(root: Node, lines: List<String>, color: Color, compac
 }
 
 @Composable
-internal fun memoBodyTextStyle(compact: Boolean): TextStyle {
-    val style = if (compact) MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 26.sp)
-        else MaterialTheme.typography.bodyLarge
-    return style.copy(lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None))
-}
+internal fun memoBodyTextStyle(): TextStyle = MaterialTheme.typography.bodyMedium.copy(
+    lineHeight = 27.sp,
+    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
+)
 
 /** Six rendered lines across all Markdown blocks, including wraps caused by width or font scale. */
 @Composable
@@ -162,8 +161,8 @@ fun FoldableMarkdown(
     val haptics=LocalHapticFeedback.current
     val latestClick by rememberUpdatedState(onClick)
     val latestLongClick by rememberUpdatedState(onLongClick)
-    val body=memoBodyTextStyle(compact)
-    val heading=body.copy(fontSize=(if(compact)18 else 24).sp,lineHeight=(if(compact)28 else 34).sp,fontWeight=FontWeight.Medium)
+    val body=memoBodyTextStyle()
+    val heading=body.copy(fontSize=17.sp,fontWeight=FontWeight.Medium)
     val blocks=remember(content,c.ink,compact) {memoTextBlocks(markdownParser.parse(content),content.lines(),c.ink,compact)}
     val iconSize=with(density) {body.fontSize.toDp()}.coerceAtLeast(MmIconSize.Toolbar)
     val markerLineHeight=with(density) {body.lineHeight.toDp()}.coerceAtLeast(iconSize)

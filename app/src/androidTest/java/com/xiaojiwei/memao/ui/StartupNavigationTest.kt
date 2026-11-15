@@ -273,7 +273,7 @@ class StartupNavigationTest {
         assertEquals(0, gateway.getCalls)
     }
 
-    @Test fun memoToggleFollowsBodyBaselineAndRowHasEqualDividerInsets() {
+    @Test fun memoFooterUsesSharedTypographyAndEqualSpacingInBothLayouts() {
         val content = (1..8).joinToString("\n") { "笔记正文第 $it 行" }
         val memo = Memo("memos/spacing", content, "users/1", createTime = "2026-11-15T08:00:00Z")
         val (repo, account) = fixture(StartupGateway(memo))
@@ -285,11 +285,18 @@ class StartupNavigationTest {
         val actions = compose.onNodeWithTag("memoActions:${memo.name}")
         val topBar = compose.onNode(hasTestTag("pageTopBar") and hasAnyAncestor(hasTestTag("feedPage")))
         val body = compose.onNodeWithTag("memoLineText", useUnmergedTree = true)
-        val toggle = compose.onNodeWithTag("memoToggle:${memo.name}")
+        val footer = compose.onNodeWithTag("memoFooter:${memo.name}", useUnmergedTree = true)
+        val time = compose.onNodeWithTag("memoTime:${memo.name}", useUnmergedTree = true)
+        val toggleTag = "memoToggle:${memo.name}"
+        val toggle = compose.onNodeWithTag(toggleTag)
         fun textLayout(node: SemanticsNodeInteraction): TextLayoutResult {
             val layouts = mutableListOf<TextLayoutResult>()
             node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             return layouts.single()
+        }
+        fun centerY(node: SemanticsNodeInteraction): Float {
+            val bounds = node.getUnclippedBoundsInRoot()
+            return (bounds.top.value + bounds.bottom.value) / 2
         }
 
         for (compact in listOf(false, true)) {
@@ -301,28 +308,52 @@ class StartupNavigationTest {
             }
             actions.assertTouchHeightIsEqualTo(48.dp)
             for (expanded in listOf(false, true)) {
-                toggle.assertTextEquals(if (expanded) "收起" else "展开全文").assertTouchHeightIsEqualTo(48.dp)
+                val label = if (expanded) "收起" else "展开全文"
+                toggle.assertTextEquals(label).assertTouchHeightIsEqualTo(48.dp)
+                if (!compact) saveScreenshot(if (expanded) "memo-footer-expanded.png" else "memo-footer-folded.png")
+                val toggleText = compose.onNode(
+                    hasText(label) and hasAnyAncestor(hasTestTag(toggleTag)), useUnmergedTree = true,
+                )
+                time.assertTextEquals(displayTime(memo.createTime))
                 val bodyLayout = textLayout(body)
-                val toggleLayout = textLayout(toggle)
-                val last = bodyLayout.lineCount - 1
-                val lastBaseline = bodyLayout.getLineBaseline(last)
-                val bodyPitch = lastBaseline - bodyLayout.getLineBaseline(last - 1)
-                val expectedPitch = with(compose.density) { (if (compact) 26.sp else 30.sp).toPx() }
-                assertEquals(expectedPitch, bodyPitch, 1f)
-                val bodyBaseline = body.fetchSemanticsNode().positionInRoot.y + lastBaseline
-                val toggleBaseline = toggle.fetchSemanticsNode().positionInRoot.y + toggleLayout.firstBaseline
-                assertEquals(bodyPitch, toggleBaseline - bodyBaseline, 1f)
-                assertEquals(bodyPitch, toggleLayout.getLineBottom(0) - toggleLayout.getLineTop(0), 1f)
+                val timeLayout = textLayout(time)
+                val toggleLayout = textLayout(toggleText)
+                for (layout in listOf(bodyLayout, timeLayout, toggleLayout)) {
+                    assertEquals(15.sp, layout.layoutInput.style.fontSize)
+                    assertEquals(27.sp, layout.layoutInput.style.lineHeight)
+                }
+                assertEquals(timeLayout.layoutInput.style.color, toggleLayout.layoutInput.style.color)
+                assertEquals(1, timeLayout.lineCount)
+                assertEquals(1, toggleLayout.lineCount)
+                assertEquals(label.length, toggleLayout.getLineEnd(0, visibleEnd = true))
+                assertFalse(toggleLayout.isLineEllipsized(0))
+                if (!compact) {
+                    assertEquals(displayTime(memo.createTime).length, timeLayout.getLineEnd(0, visibleEnd = true))
+                    assertFalse(timeLayout.isLineEllipsized(0))
+                }
+                assertEquals(if (expanded) 8 else 6, bodyLayout.lineCount)
+                val footerCenter = centerY(footer)
+                assertEquals(footerCenter, centerY(time), 1f)
+                assertEquals(footerCenter, centerY(toggleText), 1f)
+                assertEquals(footerCenter, centerY(actions), 1f)
+                val timeBounds = time.getUnclippedBoundsInRoot()
+                val toggleBounds = toggle.getUnclippedBoundsInRoot()
+                val actionBounds = actions.getUnclippedBoundsInRoot()
+                assertTrue(timeBounds.right <= toggleBounds.left)
+                assertTrue(toggleBounds.right <= actionBounds.left)
 
                 val item = compose.runOnIdle { vm.notes.listState.layoutInfo.visibleItemsInfo.first() }
                 assertEquals(memo.name, item.key)
                 assertEquals(0, item.offset)
-                val topGap = actions.getUnclippedBoundsInRoot().top - topBar.getUnclippedBoundsInRoot().bottom
-                val dividerTop = feed.getUnclippedBoundsInRoot().top + with(compose.density) { item.size.toDp() } - 1.dp
-                val bottomGap = dividerTop - toggle.getUnclippedBoundsInRoot().bottom
-                assertEquals(8f, topGap.value, 1f)
-                assertEquals(topGap.value, bottomGap.value, 1f)
-                if (!compact) saveScreenshot(if (expanded) "memo-rhythm-expanded.png" else "memo-rhythm-folded.png")
+                val bodyBounds = body.getUnclippedBoundsInRoot()
+                val footerBounds = footer.getUnclippedBoundsInRoot()
+                val topGap = bodyBounds.top - topBar.getUnclippedBoundsInRoot().bottom
+                val dividerTop = feed.getUnclippedBoundsInRoot().top + with(compose.density) { (item.size - 1.dp.roundToPx()).toDp() }
+                val footerTopGap = footerBounds.top - bodyBounds.bottom
+                val footerBottomGap = dividerTop - footerBounds.bottom
+                assertEquals(12f, topGap.value, 1f)
+                assertEquals(12f, footerTopGap.value, 1f)
+                assertEquals(12f, footerBottomGap.value, 1f)
                 toggle.performTouchInput { click() }
             }
         }
