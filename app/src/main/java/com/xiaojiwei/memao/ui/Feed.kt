@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.xiaojiwei.memao.media.AudioState
 import com.xiaojiwei.memao.model.Draft
 import com.xiaojiwei.memao.model.Memo
@@ -175,7 +176,8 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
     val noteSpacing = 12.dp
     val footerIconSize = 15.dp
     val noteTextStyle = memoBodyTextStyle()
-    val footerLineHeight = with(LocalDensity.current) { noteTextStyle.lineHeight.toDp() }
+    val footerTextStyle = noteTextStyle.copy(fontSize = 14.sp)
+    val footerLineHeight = with(LocalDensity.current) { footerTextStyle.lineHeight.toDp() }
     Column(Modifier.fillMaxWidth().then(if(selected)Modifier.background(c.soft,RoundedCornerShape(8.dp))else Modifier).padding(vertical=noteSpacing)) {
         Box(Modifier.fillMaxWidth().testTag("memo:${memo.name}")
             .semantics {stateDescription=if(!overflowing)"全文" else if(expanded)"已展开" else "已折叠"}
@@ -205,7 +207,7 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
                     modifier = Modifier.weight(1f).testTag("memoTime:${memo.name}")
                         .combinedClickable(onClick = {}, onLongClickLabel = "编辑笔记", onLongClick = edit),
                     color = c.memoFooter,
-                    style = noteTextStyle,
+                    style = footerTextStyle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -220,7 +222,7 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
                         horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.End),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(if (expanded) "收起" else "展开全文", color = c.memoFooter, style = noteTextStyle, maxLines = 1)
+                        Text(if (expanded) "收起" else "展开全文", color = c.memoFooter, style = footerTextStyle, maxLines = 1)
                         LineIcon(MmIcon.DOWN, Modifier.size(footerIconSize).rotate(if (expanded) 180f else 0f), c.memoFooter)
                     }
                 }

@@ -1,6 +1,7 @@
 package com.xiaojiwei.memao.ui
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
@@ -10,6 +11,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
@@ -289,6 +291,8 @@ class StartupNavigationTest {
         val time = compose.onNodeWithTag("memoTime:${memo.name}", useUnmergedTree = true)
         val toggleTag = "memoToggle:${memo.name}"
         val toggle = compose.onNodeWithTag(toggleTag)
+        val nightMode = compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        val footerColor = if (nightMode == Configuration.UI_MODE_NIGHT_YES) Color(0xFFB3B8BE) else Color(0xFF5D6268)
         fun textLayout(node: SemanticsNodeInteraction): TextLayoutResult {
             val layouts = mutableListOf<TextLayoutResult>()
             node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
@@ -318,11 +322,14 @@ class StartupNavigationTest {
                 val bodyLayout = textLayout(body)
                 val timeLayout = textLayout(time)
                 val toggleLayout = textLayout(toggleText)
-                for (layout in listOf(bodyLayout, timeLayout, toggleLayout)) {
-                    assertEquals(15.sp, layout.layoutInput.style.fontSize)
-                    assertEquals(27.sp, layout.layoutInput.style.lineHeight)
+                assertEquals(15.sp, bodyLayout.layoutInput.style.fontSize)
+                assertEquals(27.sp, bodyLayout.layoutInput.style.lineHeight)
+                for (layout in listOf(timeLayout, toggleLayout)) {
+                    val style = layout.layoutInput.style
+                    assertEquals(14.sp, style.fontSize)
+                    assertEquals(27.sp, style.lineHeight)
+                    assertEquals(footerColor, style.color)
                 }
-                assertEquals(timeLayout.layoutInput.style.color, toggleLayout.layoutInput.style.color)
                 assertEquals(1, timeLayout.lineCount)
                 assertEquals(1, toggleLayout.lineCount)
                 assertEquals(label.length, toggleLayout.getLineEnd(0, visibleEnd = true))
