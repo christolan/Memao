@@ -308,6 +308,13 @@ class MemaoViewModel(
         val content=draft.content.substring(0,start)+prefix+selected+suffix+draft.content.substring(end)
         updateEditor(TextFieldValue(content,TextRange(start+prefix.length,end+prefix.length)))
     }
+    internal suspend fun cachedEditorTags(accountId: String): List<String> = try {
+        repository.tags(accountId, cachedOnly = true).map { it.tag }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        emptyList()
+    }
     fun addTag(raw:String) {
         val tag=raw.trim().removePrefix("#").replace(Regex("\\s+"),"")
         if(tag.isBlank())return

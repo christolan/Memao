@@ -235,16 +235,16 @@ class MemaoRepository(
     suspend fun refresh(accountId: String, query: MemoQuery = MemoQuery()): PageResult = fetchPage(accountId, query, false)
     suspend fun loadMore(accountId: String, query: MemoQuery = MemoQuery()): PageResult = fetchPage(accountId, query, true)
 
-    suspend fun tags(accountId: String): List<TagCount> = withContext(Dispatchers.IO) {
+    suspend fun tags(accountId: String, cachedOnly: Boolean = false): List<TagCount> = withContext(Dispatchers.IO) {
         initialized.await()
         val owner = account(accountId)
-        try { gateway.tags(owner) }
-        catch (cancelled: CancellationException) { throw cancelled }
-        catch (error: Exception) {
-            markAuthentication(owner, error)
-            dao.memos(accountId).map { ModelCodec.memo(it.payload) }.filter { !it.archived }
-                .flatMap { it.tags }.groupingBy { it }.eachCount().map { TagCount(it.key, it.value) }.sortedBy { it.tag }
+        if (!cachedOnly) {
+            try { return@withContext gateway.tags(owner) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { markAuthentication(owner, error) }
         }
+        dao.memos(accountId).map { ModelCodec.memo(it.payload) }.filter { !it.archived }
+            .flatMap { it.tags }.groupingBy { it }.eachCount().map { TagCount(it.key, it.value) }.sortedBy { it.tag }
     }
 
     suspend fun openMemo(accountId: String, name: String): Memo = withContext(Dispatchers.IO) {

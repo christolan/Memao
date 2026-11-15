@@ -49,8 +49,7 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
     }
     val images=rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) {uris->vm.importFiles(uris)}
     val audioPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {uri->vm.importFiles(listOfNotNull(uri))}
-    var addTag by remember {mutableStateOf(false)}
-    var tagValue by remember {mutableStateOf("")}
+    var addTag by rememberSaveable(draft.id) {mutableStateOf(false)}
     var removing by remember {mutableStateOf<MediaDisplay?>(null)}
     val editable=!s.sending&&!s.importing
     Column(Modifier.fillMaxSize().imePadding()) {
@@ -145,12 +144,20 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
                 if(uris.isEmpty())vm.notify("剪贴板中没有可读取的图片。")
                 else scope.launch {if(vm.prepareAttachmentImport())vm.importFiles(uris)}
             },enabled=editable,icon=MmIcon.PASTE)
-            MmButton("标签",{tagValue="";addTag=true},enabled=editable,icon=MmIcon.TAG)
+            MmButton("标签",{addTag=true},enabled=editable,icon=MmIcon.TAG)
         }
     }
-    if(addTag)MmDialog("添加标签","标签写入正文，和服务端保持一致。也可直接在源码中添加或移除 #标签。",onDismiss={addTag=false},
-        actions={MmButton("取消",{addTag=false});MmButton("添加",{vm.addTag(tagValue);addTag=false},primary=true,enabled=tagValue.trim().removePrefix("#").isNotBlank())},
-        body={Spacer(Modifier.height(16.dp));MmField(tagValue,{tagValue=it},"标签",placeholder="例如：日常")})
+    if (addTag) {
+        val offline = s.offline || vm.notes.state.offline
+        val cachedTags by produceState(emptyList<String>(), draft.accountId, offline) {
+            value = if (offline) vm.cachedEditorTags(draft.accountId) else emptyList()
+        }
+        val tags = s.tags.map { it.tag } + cachedTags + vm.notes.state.memos.flatMap { it.tags } + draft.baseMemo?.tags.orEmpty()
+        EditorTagDialog(tags, onDismiss = { addTag = false }, onAdd = { tag ->
+            vm.addTag(tag)
+            addTag = false
+        })
+    }
     removing?.let {item->MmDialog("移除附件？","发送前只修改本地草稿，服务端原笔记暂不改变。",onDismiss={removing=null},
         actions={MmButton("取消",{removing=null});MmButton("移除",{vm.removeAttachment(item.key);removing=null},danger=true)})}
 }

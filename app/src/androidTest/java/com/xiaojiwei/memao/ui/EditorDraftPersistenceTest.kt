@@ -24,6 +24,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.xiaojiwei.memao.data.local.MemaoDatabase
+import com.xiaojiwei.memao.data.local.MemoRecord
 import com.xiaojiwei.memao.data.local.ModelCodec
 import com.xiaojiwei.memao.data.local.TokenVault
 import com.xiaojiwei.memao.domain.MemaoRepository
@@ -272,6 +273,48 @@ class EditorDraftPersistenceTest {
         assertTrue("The gateway must have actually received an update attempt", gateway.publishes > 0)
     }
 
+    @Test fun existingTagsCanBeSelectedOrFilteredAndCustomTagsCanStillBeCreated() {
+        start()
+        compose.waitUntil(10_000) { vm.state.tags.any { it.tag == "计划" } }
+        openMemoByLongPress()
+        compose.onNodeWithText("标签").performClick()
+        compose.onAllNodesWithText("#日常").assertCountEquals(1)
+        compose.onNodeWithText("#计划").assertExists()
+        compose.onNodeWithText("#工作").assertDoesNotExist()
+
+        compose.onNodeWithTag("editorTagInput").performTextReplacement("#计")
+        compose.onNodeWithText("#日常").assertDoesNotExist()
+        compose.onNodeWithText("#计划").performClick()
+        compose.onNodeWithText("添加标签").assertDoesNotExist()
+        compose.onNodeWithTag("editorBody").assertTextEquals(gateway.memo.content + "\n#计划")
+
+        compose.onNodeWithText("标签").performClick()
+        compose.onNodeWithTag("editorTagInput").performTextReplacement("临时 标签")
+        compose.onNodeWithText("已有标签").assertDoesNotExist()
+        compose.onNodeWithText("添加").performScrollTo().performClick()
+        compose.onNodeWithTag("editorBody").assertTextEquals(gateway.memo.content + "\n#计划\n#临时标签")
+        assertEquals(0, gateway.publishes)
+    }
+
+    @Test fun offlineTagChoicesIncludeUnlistedCachedNotesOnlyFromTheCurrentAccount() {
+        start()
+        runBlocking {
+            for ((account, tag) in listOf(first to "本机缓存标签", second to "其他账号标签")) {
+                val memo = Memo("memos/cached", "#$tag", account.userName, tags = listOf(tag))
+                database.dao().putMemo(MemoRecord(account.id, memo.name, ModelCodec.memo(memo), System.currentTimeMillis()))
+            }
+        }
+        gateway.listUnavailable = true
+        compose.runOnIdle { vm.setUntagged(true) }
+        compose.waitUntil(10_000) { vm.state.offline && !vm.state.loading && vm.state.untagged }
+        compose.onNodeWithTag("newMemo").performClick()
+        compose.onNodeWithText("标签").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("#本机缓存标签").fetchSemanticsNodes().size == 1 }
+        compose.onNodeWithText("#其他账号标签").assertDoesNotExist()
+        compose.onNodeWithText("#本机缓存标签").performClick()
+        compose.onNodeWithTag("editorBody").assertTextEquals("#本机缓存标签")
+    }
+
     private fun persisted(accountId: String): List<Draft> = runBlocking {
         database.dao().drafts(accountId).map { ModelCodec.draft(it.payload) }
     }
@@ -339,9 +382,15 @@ class EditorDraftPersistenceTest {
             attachments = if (withAttachment) listOf(Attachment("attachments/original", "原有音频.wav", "audio/wav", remoteBytes.size.toLong())) else emptyList())
         @Volatile var pending: PendingResponse? = null
         @Volatile var publishes = 0
+        @Volatile var listUnavailable = false
         override suspend fun inspect(serverUrl: String, token: String) = ConnectionInfo("users/1", "隔离测试账号", version = "0.31.0")
-        override suspend fun list(account: Account, query: MemoQuery, pageToken: String) = MemoPage(listOf(memo).filter { it.archived == query.archived })
-        override suspend fun tags(account: Account) = emptyList<TagCount>()
+        override suspend fun list(account: Account, query: MemoQuery, pageToken: String): MemoPage {
+            if (listUnavailable) throw java.io.IOException("隔离测试网关离线")
+            return MemoPage(listOf(memo).filter { it.archived == query.archived })
+        }
+        override suspend fun tags(account: Account) = if (account.serverUrl.contains("first.fixture.invalid")) {
+            listOf(TagCount("日常", 2), TagCount("计划", 1), TagCount("日常", 1))
+        } else listOf(TagCount("工作", 1))
         override suspend fun get(account: Account, name: String): Memo {
             val response = pending ?: return memo
             return withContext(NonCancellable) { response.started.complete(Unit); response.result.await() }
