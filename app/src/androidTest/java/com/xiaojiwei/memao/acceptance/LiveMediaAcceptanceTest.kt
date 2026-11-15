@@ -86,7 +86,8 @@ class LiveMediaAcceptanceTest {
             go("navNotes")
             val previousDraftIds = compose.runOnIdle { viewModel().state.drafts.map { it.id }.toSet() }
             stage = "向空白编辑器粘贴测试Provider图片URI"
-            go("newMemo")
+            waitTag("newMemo")
+            compose.onNodeWithTag("newMemo", useUnmergedTree = true).performClick()
             waitTag("editorBody")
             compose.runOnIdle { clipboard.setPrimaryClip(ClipData.newUri(context.contentResolver, "Memao generated QA image", uri)) }
             compose.onNodeWithText("粘贴图片").performScrollTo().performClick()

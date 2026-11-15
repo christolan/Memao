@@ -182,9 +182,8 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                 }
             }
             s.message?.let {message ->
-                Row(Modifier.align(Alignment.BottomCenter).padding(horizontal=20.dp,vertical=20.dp).clip(RoundedCornerShape(8.dp)).background(c.soft).padding(start=16.dp),verticalAlignment=Alignment.CenterVertically) {
-                    Text(message,Modifier.weight(1f),color=c.ink,style=MaterialTheme.typography.bodySmall)
-                    MmIconButton(MmIcon.CLOSE,"关闭提示",onClick=vm::dismissMessage)
+                if (s.page != UiPage.NOTES || (showDetail && !wide)) {
+                    MessageNotice(message, vm::dismissMessage, Modifier.align(Alignment.BottomCenter))
                 }
                 LaunchedEffect(message){kotlinx.coroutines.delay(4500);vm.dismissMessage()}
             }
@@ -256,8 +255,6 @@ private fun NavigationDrawer(
                 onClose?.let {close->MmIconButton(MmIcon.CLOSE,"关闭导航菜单",modifier=Modifier.testTag("drawerClose"),onClick=close)}
             }
             Spacer(Modifier.height(20.dp))
-            MmButton("记录",{onNavigate(vm::newDraft)},Modifier.fillMaxWidth().testTag("newMemo"),primary=true,icon=MmIcon.PLUS,enabled=!s.sending&&!s.importing)
-            Spacer(Modifier.height(20.dp))
             listOf(UiPage.NOTES,UiPage.DRAFTS,UiPage.ARCHIVE).forEach {page->
                 DrawerItem(page,s.page==page){onNavigate {vm.navigate(page)}}
             }
@@ -310,6 +307,19 @@ private fun DrawerItem(page:UiPage,selected:Boolean,onClick:()->Unit) {
         LineIcon(icon,Modifier.size(MmIconSize.Navigation),tint=if(selected)c.ink else c.secondary)
         Spacer(Modifier.width(16.dp))
         Text(page.title,color=if(selected)c.ink else c.secondary,style=MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+internal fun MessageNotice(message: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    val c = LocalMemaoColors.current
+    Row(
+        modifier.padding(horizontal = 20.dp, vertical = 20.dp).clip(RoundedCornerShape(8.dp))
+            .background(c.soft).padding(start = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(message, Modifier.weight(1f), color = c.ink, style = MaterialTheme.typography.bodySmall)
+        MmIconButton(MmIcon.CLOSE, "关闭提示", onClick = onDismiss)
     }
 }
 

@@ -73,11 +73,11 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("drawerToggle").assertIsDisplayed().assertHasClickAction()
         compose.onNodeWithTag("navNotes").assertIsNotDisplayed()
         compose.onNodeWithTag("navigationDrawer").assertIsNotDisplayed()
-        compose.onNodeWithTag("newMemo").assertDoesNotExist()
+        compose.onNodeWithTag("newMemo").assertIsDisplayed()
         saveScreenshot("drawer-compact-closed.png")
 
         openDrawer()
-        compose.onNodeWithTag("newMemo").assertIsDisplayed()
+        compose.onNodeWithTag("newMemo").assertIsNotDisplayed()
         compose.onNodeWithTag("navNotes").assertIsSelected()
         compose.onNodeWithTag("navDrafts").performScrollTo().performClick()
         compose.waitUntil(10_000) { vm.state.page == UiPage.DRAFTS }
@@ -102,7 +102,6 @@ class AdaptiveDrawerTest {
     @Test fun closingDrawerOverEditorPreservesDraftAndNavigationSavesIt() {
         val gateway = DrawerGateway()
         val vm = start(gateway)
-        openDrawer()
         compose.onNodeWithTag("newMemo").performClick()
         compose.waitUntil(10_000) { vm.state.editor != null }
         compose.onNodeWithTag("navigationDrawer").assertIsNotDisplayed()
@@ -182,7 +181,7 @@ class AdaptiveDrawerTest {
         assertTrue("Long labels must wrap across lines", tagLayout.single().lineCount > 1)
         assertTrue("Long labels must remain fully readable at 1.8× font scale", !tagLayout.single().hasVisualOverflow)
         saveScreenshot("drawer-tags-expanded-dark-large-font.png")
-        compose.onNodeWithTag("newMemo").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithTag("newMemo").assertIsDisplayed().performClick()
         compose.waitUntil(10_000) { vm.state.editor != null }
         compose.onNodeWithTag("navigationDrawer").assertExists()
         compose.onNodeWithTag("editorBody").assertExists()
@@ -222,10 +221,16 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("tag:日常").assertIsNotDisplayed()
         compose.onNode(feedTitle).assertTextEquals("笔记 #日常").assertIsDisplayed().assertHasNoClickAction()
         compose.onNodeWithTag("activeTagFilter").assertDoesNotExist()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("memo:memos/drawer0"))
         compose.onNodeWithTag("memo:memos/drawer0").assertTextContains("记录 0\n#日常")
         compose.onAllNodes(hasText("#日常") and outsideDrawer).assertCountEquals(0)
         saveScreenshot("drawer-tags-compact-selected.png")
+        val newMemo = compose.onNodeWithTag("newMemo").assertIsDisplayed().assert(outsideDrawer)
+        val buttonBounds = newMemo.fetchSemanticsNode().boundsInRoot
+        val listBounds = compose.onNodeWithTag("feedList").fetchSemanticsNode().boundsInRoot
+        assertTrue("The new note button is below the list", buttonBounds.top >= listBounds.bottom)
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("memo:memos/drawer18"))
+        assertEquals(buttonBounds, newMemo.assertIsDisplayed().fetchSemanticsNode().boundsInRoot)
         val key = compose.runOnIdle { vm.notes.scrollKey }
         val initialIndex = compose.runOnIdle { vm.scroll(key).first }
         assertTrue("Fixture must be scrolled past its header", initialIndex > 1)
@@ -237,6 +242,7 @@ class AdaptiveDrawerTest {
         saveScreenshot("drawer-tags-compact-open.png")
         pressBack()
         compose.onNodeWithTag("openSearch").assertIsDisplayed().performClick()
+        newMemo.assertDoesNotExist()
         val search = compose.onNodeWithTag("search")
         search.performTextReplacement("记录")
         search.performImeAction()
@@ -272,6 +278,7 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("navArchive").performScrollTo().performClick()
         compose.waitUntil(10_000) { vm.state.page == UiPage.ARCHIVE && vm.state.memos.singleOrNull()?.name == archived.name }
         compose.onNode(feedTitle).assertTextEquals("归档")
+        newMemo.assertDoesNotExist()
         compose.onNodeWithTag("memo:${archived.name}").assertTextContains(archived.content).performClick()
         compose.runOnIdle { assertTrue(!vm.state.paneOpen); assertEquals(null, vm.state.editor) }
         compose.onNode(feedTitle).assertTextEquals("归档")
@@ -352,17 +359,7 @@ class AdaptiveDrawerTest {
             compose.waitUntil(10_000) { vm.state.page == UiPage.DRAFTS }
             drawer.assertIsNotDisplayed()
 
-            compose.onNodeWithTag("drawerToggle").performClick()
-            compose.mainClock.advanceTimeBy(1500)
-            compose.onNodeWithTag("newMemo").performClick()
-            compose.mainClock.advanceTimeByFrame()
-            compose.mainClock.advanceTimeBy(48)
-            assertTrue("New memo selection must finish closing before opening the editor", drawerX() > closedX + 1f)
-            compose.runOnIdle { assertEquals(null, vm.state.editor) }
-            saveScreenshot("drawer-motion-08-new-memo-closing.png")
-            compose.mainClock.advanceTimeBy(1500)
-            compose.waitUntil(10_000) { vm.state.editor != null }
-            drawer.assertIsNotDisplayed()
+            compose.onNodeWithTag("newMemo").assertDoesNotExist()
         } finally {
             compose.mainClock.autoAdvance = true
             compose.waitForIdle()

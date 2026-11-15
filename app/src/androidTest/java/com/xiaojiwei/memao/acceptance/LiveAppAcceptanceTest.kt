@@ -183,7 +183,7 @@ class LiveAppAcceptanceTest {
             waitTag("memo:${first.name}")
 
             stage = "创建待保护的本地草稿"
-            go("newMemo")
+            openNewMemo()
             waitTag("editorBody")
             compose.onNodeWithTag("editorBody", useUnmergedTree = true).performTextReplacement(protectedDraft)
             compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
@@ -256,7 +256,7 @@ class LiveAppAcceptanceTest {
     }
 
     private fun createThroughApp(content: String) {
-        go("newMemo")
+        openNewMemo()
         waitTag("editorBody")
         compose.onNodeWithTag("editorBody", useUnmergedTree = true).performTextReplacement(content)
         compose.onNodeWithTag("sendMemo", useUnmergedTree = true).performClick()
@@ -287,6 +287,11 @@ class LiveAppAcceptanceTest {
     private fun closeSearch() {
         compose.onNodeWithText("取消").performClick()
         waitAbsent("search")
+    }
+
+    private fun openNewMemo() {
+        waitTag("newMemo")
+        compose.onNodeWithTag("newMemo", useUnmergedTree = true).performClick()
     }
 
     private fun go(tag: String) {
