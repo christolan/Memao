@@ -55,13 +55,15 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
     val editable=!s.sending&&!s.importing
     Column(Modifier.fillMaxSize().imePadding()) {
         MmTopBar(if(draft.isNew)"新的记录" else "编辑记录",vm::back) {
-            MmButton(if(s.sending)"发送中…" else "发送",{keyboard?.hide();vm.send()},Modifier.testTag("sendMemo"),primary=true,enabled=editable&&!draft.empty&&!s.offline)
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically) {
-            MmButton("编辑",{if(s.preview)vm.togglePreview()},enabled=editable,icon=MmIcon.EDIT)
-            MmButton("预览",{if(!s.preview){keyboard?.hide();vm.togglePreview()}},enabled=editable,icon=MmIcon.EYE)
-            Spacer(Modifier.weight(1f))
-            Text(when {s.importing->"正在保存附件…";s.saving->"正在保存…";s.saveError!=null->"保存失败";draft.empty->"尚无内容";s.editorUnchanged->"未修改";else->"已保存在本机"},color=if(s.saveError!=null)c.danger else c.secondary,style=MaterialTheme.typography.labelSmall)
+            MmButton(
+                if (s.preview) "编辑" else "预览",
+                onClick = {
+                    if (!s.preview) keyboard?.hide()
+                    vm.togglePreview()
+                },
+                enabled = editable,
+            )
+            MmButton(if(s.sending)"保存中…" else "保存",{keyboard?.hide();vm.send()},Modifier.testTag("sendMemo"),primary=true,enabled=editable&&!draft.empty&&!s.offline)
         }
         s.saveError?.let {StateBanner(it,error=true,action={MmButton("重试保存",vm::retrySave)})}
         s.error?.let {StateBanner(it,error=true,action={MmIconButton(MmIcon.CLOSE,"关闭错误提示",onClick=vm::dismissError)})}
@@ -93,7 +95,22 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
         Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
             LineIcon(visibilityIcon(if(draft.isNew)"PRIVATE" else draft.baseMemo?.visibility?:"PRIVATE"),tint=c.secondary);Spacer(Modifier.width(6.dp))
             Text(if(draft.isNew)"私密笔记" else visibilityLabel(draft.baseMemo?.visibility?:"PRIVATE")+" · 保持原可见性",Modifier.weight(1f),color=c.secondary,style=MaterialTheme.typography.labelSmall)
-            if(s.offline)Text("离线草稿",color=c.secondary,style=MaterialTheme.typography.labelSmall)
+            Spacer(Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    when {
+                        s.importing -> "正在保存附件…"
+                        s.saving -> "正在保存…"
+                        s.saveError != null -> "保存失败"
+                        draft.empty -> "尚无内容"
+                        s.editorUnchanged -> "未修改"
+                        else -> "已保存在本机"
+                    },
+                    color = if (s.saveError != null) c.danger else c.secondary,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                if (s.offline) Text("离线草稿", color = c.secondary, style = MaterialTheme.typography.labelSmall)
+            }
         }
         if(!s.preview) {
             MmRule()

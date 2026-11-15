@@ -97,6 +97,7 @@ class EditorDraftPersistenceTest {
         compose.onNodeWithTag("editorBody").assert(
             SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")),
         )
+        compose.onNodeWithTag("sendMemo").assertTextEquals("保存").assertIsNotEnabled()
         compose.onNodeWithContentDescription("返回").performClick()
         awaitClosed()
         assertTrue("An empty new editor must still leave no draft", persisted(second.id).isEmpty())
@@ -108,12 +109,15 @@ class EditorDraftPersistenceTest {
         openMemoByLongPress()
         val originalFiles = compose.runOnIdle { vm.state.editor!!.attachments.map { File(it.localPath) } }
         compose.onNodeWithTag("editorBody").performTextInputSelection(TextRange(1, 4))
-        compose.onNodeWithText("预览", useUnmergedTree = true).performClick()
+        val inTitleBar = hasAnyAncestor(hasTestTag("pageTopBar"))
+        compose.onNodeWithText("编辑", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNode(hasText("预览") and inTitleBar, useUnmergedTree = true).performClick()
         compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
         compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         compose.waitForIdle()
         compose.runOnIdle { assertTrue(vm.state.preview); assertEquals(gateway.memo.content, vm.state.editor?.content) }
-        compose.onNodeWithText("编辑", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("预览", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNode(hasText("编辑") and inTitleBar, useUnmergedTree = true).performClick()
         compose.onNodeWithTag("editorBody").assertTextEquals(gateway.memo.content)
         compose.onNodeWithContentDescription("返回").performClick()
         awaitClosed()
