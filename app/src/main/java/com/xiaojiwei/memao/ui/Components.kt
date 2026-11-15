@@ -1,5 +1,6 @@
 package com.xiaojiwei.memao.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -17,16 +19,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.xiaojiwei.memao.R
 import com.xiaojiwei.memao.ui.theme.LocalMemaoColors
 
 @Composable
@@ -71,6 +79,34 @@ fun MmField(value: String, onValueChange: (String) -> Unit, label: String, modif
 
 @Composable
 fun MmRule() { Box(Modifier.fillMaxWidth().height(1.dp).background(LocalMemaoColors.current.divider)) }
+
+@Composable
+internal fun MemaoBrandTitle(
+    modifier: Modifier = Modifier,
+    style: TextStyle = LocalTextStyle.current,
+    iconSize: Dp = 24.dp,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier.size(iconSize).background(
+                colorResource(R.color.memao_brand_background),
+                RoundedCornerShape(percent = 25),
+            ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_memao_brand_mark),
+                contentDescription = null,
+                modifier = Modifier.size(iconSize * 0.6f),
+            )
+        }
+        Text(stringResource(R.string.app_name), color = LocalMemaoColors.current.ink, style = style)
+    }
+}
 
 // The active pane owns its fixed page bar; compact navigation joins that same row.
 val LocalOpenNavigationDrawer=compositionLocalOf<(() -> Unit)?> {null}

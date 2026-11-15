@@ -168,7 +168,7 @@ fun SettingsContent(
                 }
 
                 SettingsSectionBreak()
-                Text("Memao",color=c.ink,style=MaterialTheme.typography.titleMedium)
+                MemaoBrandTitle(style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(3.dp))
                 SettingsSupportingText("记录生活里的小事")
                 SettingsSupportingText("兼容 Memos 0.31.0 · 简体中文")

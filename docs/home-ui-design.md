@@ -8,6 +8,68 @@
 
 用户已指定采用 Lucide。完整映射、统一尺寸与状态、Android 矢量接入、分步实施和验收清单见 [Memao Lucide 图标优化落地方案](lucide-icons.md)。保持留白极简及既有双栏设计，覆盖导航、工具栏、编辑器、媒体和空状态；桌面启动图标作为独立品牌资产处理。后续具体实施与验收更新到该方案页。
 
+## 桌面图标定稿 · R74
+
+2026-11-15 用户选定 [B「折纸 M」](assets/design/launcher-icons/b-folded-m.png)。桌面图标使用浅灰底、深灰字形与浅一阶的折面，应用内的导航抽屉和设置页复用同款折纸标志，放在既有「Memao」标题左侧。下面保留两轮提案与出图记录。
+
+## 桌面图标候选 · 2026-11-15
+
+用户说明 Memao 是 Memos 的 Android 客户端，命名与自己的昵称「帽子」有关，并希望保留现在的简约风格。首轮提供三款候选，最终选择见上方定稿记录。
+
+| 候选 | 设计 |
+| --- | --- |
+| [A 帽沿便签](assets/design/launcher-icons/a-hat-note.png) | 炭黑底配暖白图形。棒球帽的侧影叠在便签上，同时呼应昵称与笔记用途。 |
+| [B 折纸 M](assets/design/launcher-icons/b-folded-m.png) | 浅灰底配粗体 M，使用折线和斜切端点表现纸带，延续原有字母标识。 |
+| [C 纸折渔夫帽](assets/design/launcher-icons/c-paper-hat.png) | 松绿色底配暖白帽形，一块浅绿折面呼应纸页翻角。 |
+
+[桌面图标对比图](assets/design/launcher-icons/comparison.png)包含圆形和圆角方形的小尺寸示意。候选通过内置 ImageGen 生成，原图均为 1254 × 1254 PNG。预览为静态视觉比较，目标设备上的桌面效果待选定方案并接入后验证。
+
+<details>
+<summary>候选原图的生成提示词</summary>
+
+**A**
+
+> Use case: logo-brand. Generate ONE standalone square Android launcher icon for Memao, a minimalist Memos notes app named after the maker's nickname Hat. The central glyph must unmistakably read as a NOTE PAGE at first glance, and have a charming compact recognizable side-profile baseball cap cocked to the RIGHT on its top edge. Design an ingenious overlapping two-piece flat logo with a narrow negative-space gap between the objects. The bottom two thirds is a vertical memo page rendered as a warm ivory filled rectangle with subtle corner radii, a small triangular notch at the bottom right, and exactly two short thick charcoal horizontal text dashes in the page. The upper third is the small ivory baseball cap, a simple low dome that rises to the left with a clearly pronounced short asymmetric visor sticking out to the right ONLY. Slight rotation of cap (about 8 degrees), the memo page remains upright. No knob or button on top of hat. The cap is not an umbrella, not fedora or a cloche, avoid a symmetric hat brim. Precise flat clean geometric contours. Unifying warm ivory #F4F1E9 centered artwork, 58% width and around 61% height, over solid charcoal #242629 covering all four square corners uniformly. Bold and legible at 32px, big negative spaces, no strokes, no gradients, no shadows, no bevels, no texture, no text, no border or frame, no icon container, no mockup. Render the individual app icon artwork.
+
+**B**
+
+> Use case: logo-brand. Create ONE sophisticated, minimalist Android launcher icon for Memao, a Memos Android notes app. Square full-bleed light paper grey #F4F5F6 background with a centered large #242629 mark. The mark is a bold custom uppercase M shaped like a single strip of folded stationery, with robust stems, an intentional steep inner fold, and one blunt diagonal paper-cut end at the lower right. Use delicately eased outside corners and geometric, carved negative space to suggest the folds using at most one broad cut and two flat fills, charcoal and one subtly lighter graphite face. Make it read immediately as an M, with calm, grounded proportions, designed for reproduction in one color and at tiny size. Art direction is a quiet modern design studio identity mark. The glyph occupies only about 60 percent of the square width, with generous space on all sides. Pixel-crisp flat vector-style design. Full-bleed background extends through all four square corners. No text other than the M mark, no decorative stamp, no underline, no branding captions, no tablet, no frame, no visible paper texture, no gradients or shadows. Output only the icon.
+
+**C**
+
+> Use case: logo-brand. ONE refined flat geometric square Android launcher icon for Memao, minimalist notes app. Draw a highly recognizable modern folded-paper BUCKET HAT in side three-quarter view. Imagine the silhouette of a short flat-crowned bucket hat, with a sloping brim that fans diagonally down and outward, folded from one sheet of stationery. The crown has a broad FLAT slightly tilted top, never a pointed triangular top, with two clearly defined inward-sloping shoulders. The solid connected brim tilts down at the far ends and right side like a real bucket hat, never like a boat hull, and a very small triangular sage cut face on the right of the crown evokes a page fold. Use a maximum of three clean contiguous flat geometric planes with a small amount of rounding on the outer silhouette. No dots, no fabric or stitching, no ruled lines, no text. A bold friendly silhouette with refined details, central and 58-60 percent square canvas in width. Warm ivory #F4F0E6 main plane, soft pale sage #ACC3A4 folded plane, solid deep pine green #263D35 full bleed square background extending through all four corners. Carefully spaced and optically centered. Logo mark itself only, no panel, gradients, lighting, textures, shading, mockup, lettering or watermark.
+
+</details>
+
+## 桌面图标候选 · 棒球帽与黑白灰
+
+2026-11-15 用户要求探索棒球帽图形，配色限于黑白灰。第二轮提供三款候选，编号延续首轮。
+
+| 候选 | 设计 |
+| --- | --- |
+| [D 棒球帽剪影](assets/design/launcher-icons/d-cap-silhouette.png) | 浅灰底配黑色侧影，用留白勾出帽冠的缝线和向右伸出的帽檐。 |
+| [E 帽上笔记](assets/design/launcher-icons/e-cap-memo.png) | 黑底白帽冠，灰色帽檐朝左，帽冠内一长一短两条横线表现笔记。 |
+| [F M 帽徽](assets/design/launcher-icons/f-cap-monogram.png) | 银灰底配正面的深灰棒球帽，在帽冠中央放置白色 M。 |
+
+[棒球帽对比图](assets/design/launcher-icons/baseball-cap-comparison.png)提供圆形与圆角方形的小尺寸预览。三款均由内置 ImageGen 生成。
+
+<details>
+<summary>候选原图的生成提示词</summary>
+
+**D**
+
+> Use case: logo-brand. Produce exactly ONE polished minimalist Android launcher-icon artwork for Memao. Motif is a single unmistakable classic six-panel BASEBALL CAP seen from the side, facing right. Wide angled projecting visor with a smooth shallow curl, low rounded paneled crown, a tiny top button fused to the silhouette, and one decisive curved light-colored cut to indicate the front panel. Logo is a bold nearly black solid silhouette on uniform full-bleed pure neutral light gray #F0F0F0. A second short knockout just under the visor can define its curl if necessary. The black silhouette should feel stylish and ownable through its measured geometry and the angled cap profile. Flat simplified vector-style forms, optically centered, about 64 percent of square width, comfortable surrounding space. Primary shapes should remain clear at 32 px. STRICTLY achromatic black, white, and neutral gray; no tint. Fill all four square corners with the same background. No text, badge, letters, extra objects, circles, frames, gradients, backdrop texture, drop shadows, mockups, or captions. Output the icon artwork only.
+
+**E**
+
+> Use case: logo-brand. Generate a single concept for a minimalist Android Memos client launcher icon, square full bleed. Design a clever single-piece BASEBALL CAP + NOTE symbol. The connected shape is an unmistakable sporty baseball cap seen in side three-quarter view with a long curved bill projecting to the LEFT, subtly angled. Its rounded white crown shows just TWO clean short black parallel memo lines, first line long and second line shorter, integrated within the crown as an unmistakable typographic idea. Design a single graphic hat silhouette with space for this negative-space flourish, with the hat recognizable first at reduced size. No separate sheet below the cap and no other object. The visor is a bold slightly lighter or darker neutral gray face to express its curve, strongly distinguishable against the dark field. Purely black white neutral gray, paper white #FFFFFF and medium gray #A1A1A1 motif against uniform nearly black #181818 field; no warm or cool tints. Broad, geometric, flat shapes, confident proportions, 62 percent of square width for motif, generous margins, optically centered, legible at tiny size. Background goes to all four square corners. No lettering, frames, shadows, gradients, texture, gradients, outdoors scene, fabric photography or mockup. Show only the resulting icon design.
+
+**F**
+
+> Use case: logo-brand. Design one exquisite, achromatic minimalist Android launcher icon for the notes app Memao. Combine the recognizable front view of a classic baseball cap with a simple compact uppercase M monogram on its crown, like a team cap emblem. Front view should be straight on or slightly from above, clean geometric dome with a small top button, a flat dark-black broad visor with a crescent lower edge and subtly flared ends lower than the rounded stable crown. The emblem is a clear white bold M centered high enough on the crown and large enough for launcher size. Graphite cap crown #3C3C3C; defined black gray visor #181818; white M. Solid full-bleed medium-light silver gray #D3D3D3 through all four square corners. No noise, gradients, warm or cool tint, icons outside the cap, shading, stitches, textiles or texture. Limit to flat overlapping shapes with softened corners. Motivated by refined monochrome sports identity graphics. Give the mark ample surrounding space and center it optically, hat around 61 percent of the square width. No mockup, no lettering except the white M centered on front of the baseball cap, no captions, no border, no surrounding panel. Output only the single app icon.
+
+</details>
+
 ## 已确认的视觉要求
 
 用户明确不喜欢 Material Design，已查看四种首页方案并选定第一个“留白极简”。后续以黑白灰、分隔线、留白和清晰内容层级为基础，继续设计首页、详情与编辑器。

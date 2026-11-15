@@ -2,6 +2,16 @@
 
 > 本文保留各版本验收证据。当前检出与实机反馈见 [项目上下文索引](README.md#版本与验收状态)，0.1.17 输入框专项见 [I31](development-issues.md#i31-登录输入框光标偏上)。下文 APK 名称和构建路径记录当时的交付产物。
 
+## 品牌图标 · R74
+
+2026-11-15，按用户选定的 [B「折纸 M」](assets/design/launcher-icons/b-folded-m.png)重绘双灰矢量标志。桌面普通、圆形及主题图标共用标志轮廓与自适应安全区。项目最低支持 API 34，早期 Android 使用的固定尺寸位图已移除。[Android 自适应图标规范](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive)
+
+应用内的导航抽屉和设置页品牌标题共用标志与浅灰底色。浅灰圆角图标分别为 28 dp 和 24 dp，按既有授权确定尺寸与间距。辅助功能沿用「Memao」标题文字。验收覆盖桌面系统遮罩、抽屉窄宽布局，以及设置页深浅色的图标对齐和显示。
+
+- Debug 主包和仪器测试包构建成功，JVM 46 项通过、7 项依赖隔离 Memos 实例的用例跳过。APK 内核对了普通、圆形与主题图标的资源引用。
+- Android 17 模拟器在桌面与系统应用详情显示新的折纸 M。导航抽屉和设置页共 18 项仪器检查通过，主 Agent 复核了窄屏抽屉及深浅色设置品牌标题。宽屏夹具使用 160 dpi 验收密度，见 [I35](development-issues.md#i35-品牌图标宽屏验收夹具被裁切)。[模拟器截图](assets/acceptance/memao-brand-r74.png)
+- Find N6／ColorOS 实机的桌面裁切与主题图标效果待验证。
+
 ## 应用内更新
 
 2026-11-14 R73 在 0.1.18（versionCode 19）加入应用内更新。入口为「设置 → Memao」。APK 与同版本的更新清单一同发布到对应的 GitHub Release，沿用官方签名密钥。工作流验签并核对 APK 实际包名和版本，在清单中记录 `versionCode`、`versionName`、`fileName`、`size` 与 `sha256`。

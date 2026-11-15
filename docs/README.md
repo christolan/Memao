@@ -7,7 +7,7 @@
 | [Android 客户端需求与落地规划](planning.md) | 产品范围、已确认需求、交互默认方案、待定事项和变更记录 |
 | [首版开发准备与接口核对](development-and-acceptance.md) | Memos 0.31.0 接口、技术方案、实施里程碑、构建与验收历史 |
 | [开发问题记录](development-issues.md) | 问题复现、修复、复验及设备验证缺口 |
-| [首页 UI 方案对比](home-ui-design.md) | 留白极简方向、列表、编辑器、抽屉和折叠屏设计 |
+| [首页 UI 方案对比](home-ui-design.md) | 留白极简方向、桌面品牌图标、列表、编辑器、抽屉和折叠屏设计 |
 | [配套页面与异常状态设计](supporting-ui-design.md) | 连接、账号、草稿、归档、设置、离线及冲突交互 |
 | [Lucide 图标优化落地方案](lucide-icons.md) | 图标映射、Android 接入、验收截图、离线画廊和素材包 |
 

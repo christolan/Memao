@@ -86,6 +86,8 @@ class SettingsPresentationTest {
         assertTouchTarget("clearCache")
         compose.onNodeWithText("保留所有未发送草稿及其图片、音频。").assertExists().assertHasNoClickAction()
         saveScreenshot("settings-compact-storage.png")
+        compose.onNodeWithText("Memao").performScrollTo().assertIsDisplayed()
+        saveScreenshot("settings-brand-light.png")
     }
 
     @Test fun cacheReadShowsUnknownThenFailureRetryAndActualValues() {
@@ -180,6 +182,8 @@ class SettingsPresentationTest {
         compose.onNodeWithTag("settingsAccounts").assertIsEnabled()
         assertNoTextOverflow()
         saveScreenshot("settings-expanded-dark.png")
+        compose.onNodeWithText("Memao").performScrollTo().assertIsDisplayed()
+        saveScreenshot("settings-brand-dark.png")
     }
 
     @Test fun appUpdateKeepsCheckDownloadAndInstallationAsSeparateActions() {

@@ -11,11 +11,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.rememberDrawerState
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -247,7 +248,11 @@ private fun NavigationDrawer(
         Column(Modifier.weight(1f).fillMaxHeight()
             .verticalScroll(rememberScrollState()).padding(horizontal=16.dp,vertical=12.dp)) {
             Row(Modifier.fillMaxWidth().heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) {
-                Text("Memao",Modifier.weight(1f).padding(start=12.dp),color=c.ink,fontSize=24.sp)
+                MemaoBrandTitle(
+                    Modifier.weight(1f).padding(start = 12.dp),
+                    style = LocalTextStyle.current.copy(fontSize = 24.sp),
+                    iconSize = 28.dp,
+                )
                 onClose?.let {close->MmIconButton(MmIcon.CLOSE,"关闭导航菜单",modifier=Modifier.testTag("drawerClose"),onClick=close)}
             }
             Spacer(Modifier.height(20.dp))
