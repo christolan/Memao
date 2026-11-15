@@ -15,7 +15,6 @@ import com.xiaojiwei.memao.model.MemoQuery
 import com.xiaojiwei.memao.model.TagCount
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** A page owns its viewport even while its composable is not on screen. */
@@ -23,14 +22,15 @@ abstract class ListPageViewModel(private val saved: SavedStateHandle) : ViewMode
     var accountId: String? by mutableStateOf(null)
         protected set
     abstract val scrollKey: String
+    protected open val persistScroll = true
     private var viewport: Pair<String, LazyListState>? = null
     val listState: LazyListState
         get() {
             viewport?.takeIf { it.first == scrollKey }?.let { return it.second }
             saveViewport()
             return LazyListState(
-                saved["scroll:$accountId:$scrollKey:index"] ?: 0,
-                saved["scroll:$accountId:$scrollKey:offset"] ?: 0,
+                if (persistScroll) saved["scroll:$accountId:$scrollKey:index"] ?: 0 else 0,
+                if (persistScroll) saved["scroll:$accountId:$scrollKey:offset"] ?: 0 else 0,
             ).also { viewport = scrollKey to it }
         }
 
@@ -46,10 +46,14 @@ abstract class ListPageViewModel(private val saved: SavedStateHandle) : ViewMode
         }
     }
 
+    protected fun resetScroll() {
+        viewport = null
+    }
+
     // The owner and key are captured by the screen; a disposed old screen must not write
     // its final scroll emission into the newly selected account or query.
     fun saveScroll(owner: String?, key: String, index: Int, offset: Int) {
-        if (owner == null || owner != accountId) return
+        if (!persistScroll || owner == null || owner != accountId) return
         saved["scroll:$owner:$key:index"] = index
         saved["scroll:$owner:$key:offset"] = offset
     }
@@ -84,24 +88,26 @@ abstract class MemoListViewModel(
     override val scrollKey: String get() = "feed:$page:${state.keyword}:${state.tag}:${state.untagged}"
     private var observed: Job? = null
     private var request: Job? = null
-    private var search: Job? = null
     private var generation = 0L
     private var entered = false
 
     fun bindAccount(id: String?) {
         if (id == accountId) return
+        val untagged = page == UiPage.NOTES && id != null && saved.get<Boolean>("untagged:$id") == true
+        resetList(id, MemoListState(
+            tag = if (page == UiPage.NOTES && id != null && !untagged) saved["tag:$id"] else null,
+            untagged = untagged,
+        ))
+        observeQuery()
+    }
+
+    protected fun resetList(id: String?, initial: MemoListState = MemoListState()) {
         generation++
-        observed?.cancel(); request?.cancel(); search?.cancel()
+        observed?.cancel(); request?.cancel()
         resetAccount(id)
         entered = false
         expandedMemos.clear()
-        val untagged = page == UiPage.NOTES && id != null && saved.get<Boolean>("untagged:$id") == true
-        state = MemoListState(
-            keyword = if (page == UiPage.NOTES && id != null) saved["keyword:$id"] ?: "" else "",
-            tag = if (page == UiPage.NOTES && id != null && !untagged) saved["tag:$id"] else null,
-            untagged = untagged,
-        )
-        observeQuery()
+        state = initial
     }
 
     /** First entry loads; subsequent navigation only reveals the retained page. */
@@ -122,34 +128,30 @@ abstract class MemoListViewModel(
         }
     }
 
-    fun setKeyword(value: String) {
-        if (page != UiPage.NOTES || value == state.keyword) return
-        changeQuery(value, state.tag, state.untagged, debounce = true)
-    }
-
     fun setTag(value: String?) {
         if (page != UiPage.NOTES || (value == state.tag && !state.untagged)) return
-        changeQuery(state.keyword, value, untagged = false, debounce = false)
+        changeQuery("", value, untagged = false)
     }
 
     fun setUntagged(value: Boolean) {
         if (page != UiPage.NOTES || (value == state.untagged && state.tag == null)) return
-        changeQuery(state.keyword, null, untagged = value, debounce = false)
+        changeQuery("", null, untagged = value)
     }
 
     fun resetFiltersAndRefresh() {
-        if (page == UiPage.NOTES) changeQuery("", null, untagged = false, debounce = false)
+        if (page == UiPage.NOTES) changeQuery("", null, untagged = false)
     }
 
-    private fun changeQuery(keyword: String, tag: String?, untagged: Boolean, debounce: Boolean) {
+    protected fun changeQuery(keyword: String, tag: String?, untagged: Boolean, fetchResults: Boolean = true) {
         generation++
-        request?.cancel(); search?.cancel(); observed?.cancel()
+        request?.cancel(); observed?.cancel()
         state = state.copy(keyword = keyword, tag = tag, untagged = untagged, memos = emptyList(), cacheReady = false, loading = false,
             refreshing = false, hasMore = false, error = null)
-        accountId?.let { saved["keyword:$it"] = keyword; saved["tag:$it"] = tag; saved["untagged:$it"] = untagged }
-        observeQuery()
-        search = viewModelScope.launch {
-            if (debounce) delay(300)
+        if (page == UiPage.NOTES) {
+            accountId?.let { saved["tag:$it"] = tag; saved["untagged:$it"] = untagged }
+        }
+        if (fetchResults) {
+            observeQuery()
             refresh()
         }
     }
@@ -157,7 +159,6 @@ abstract class MemoListViewModel(
     fun refresh() = fetch(more = false, indicator = false)
     fun pullRefresh() {
         if (state.loading) return
-        search?.cancel()
         fetch(more = false, indicator = true)
     }
     fun loadMore() {
@@ -168,6 +169,7 @@ abstract class MemoListViewModel(
     private fun fetch(more: Boolean, indicator: Boolean) {
         val id = accountId ?: return
         val q = query
+        if (page == UiPage.SEARCH && q.keyword.isEmpty()) return
         val requestId = ++generation
         request?.cancel()
         entered = true
@@ -212,6 +214,46 @@ class NotesViewModel(repository: MemaoRepository, saved: SavedStateHandle) :
 
 class ArchiveViewModel(repository: MemaoRepository, saved: SavedStateHandle) :
     MemoListViewModel(repository, saved, UiPage.ARCHIVE)
+
+class SearchViewModel(private val repository: MemaoRepository, saved: SavedStateHandle) :
+    MemoListViewModel(repository, saved, UiPage.SEARCH) {
+    override val persistScroll = false
+    var input by mutableStateOf("")
+        private set
+    var recent by mutableStateOf(emptyList<String>())
+        private set
+
+    fun open(id: String, notesQuery: MemoQuery) {
+        resetList(id, MemoListState(tag = notesQuery.tag, untagged = notesQuery.untagged))
+        input = ""
+        recent = repository.recentSearches(id)
+    }
+
+    fun close() {
+        resetList(null)
+        input = ""
+        recent = emptyList()
+    }
+
+    fun updateInput(value: String) {
+        if (value == input) return
+        input = value
+        if (state.keyword.isNotEmpty()) {
+            resetScroll()
+            expandedMemos.clear()
+            changeQuery("", state.tag, state.untagged, fetchResults = false)
+        }
+    }
+
+    fun submit(value: String = input) {
+        val id = accountId ?: return
+        if (value.isBlank()) return
+        updateInput(value)
+        recent = repository.rememberSearch(id, value)
+        if (value == state.keyword) refresh()
+        else changeQuery(value, state.tag, state.untagged)
+    }
+}
 
 data class DraftListState(val drafts: List<Draft> = emptyList(), val cacheReady: Boolean = false)
 

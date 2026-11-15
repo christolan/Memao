@@ -19,6 +19,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTextInputSelection
@@ -113,18 +114,24 @@ class LiveAppAcceptanceTest {
 
             stage = "关键词与单标签组合筛选"
             go("navNotes")
-            waitTag("search")
-            compose.onNodeWithTag("search", useUnmergedTree = true).performTextReplacement(marker)
+            openSearch()
+            searchFor(marker)
             waitTag("memo:${first.name}")
             waitTag("memo:${second.name}")
+            closeSearch()
             go("tag:$tag")
+            openSearch()
+            waitText("最近搜索")
+            compose.onNodeWithText(marker).performClick()
             waitTag("memo:${first.name}")
             waitAbsent("memo:${second.name}")
-            compose.onNodeWithTag("search", useUnmergedTree = true).performTextReplacement("$marker 不匹配")
+            searchFor("$marker 不匹配")
             waitAbsent("memo:${first.name}")
-            compose.onNodeWithTag("search", useUnmergedTree = true).performTextReplacement(marker)
+            waitText("没有找到记录")
+            searchFor(marker)
             waitTag("memo:${first.name}")
             waitAbsent("memo:${second.name}")
+            closeSearch()
 
             stage = "编辑退出后自动保存修改草稿"
             compose.onNodeWithTag("memo:${first.name}", useUnmergedTree = true).performTouchInput { longClick() }
@@ -207,8 +214,6 @@ class LiveAppAcceptanceTest {
             if (keepQaAccount) {
                 stage = "保留本机验收账号与样本供手动复核"
                 go("navNotes")
-                waitTag("search")
-                compose.onNodeWithTag("search", useUnmergedTree = true).performTextReplacement("")
                 go("tag:all")
                 waitTag("memo:${first.name}")
                 captureEvidence("home-dark", hideKeyboard = true)
@@ -265,6 +270,23 @@ class LiveAppAcceptanceTest {
             found != null
         }
         return requireNotNull(found)
+    }
+
+    private fun openSearch() {
+        waitTag("openSearch")
+        compose.onNodeWithTag("openSearch", useUnmergedTree = true).performClick()
+        waitTag("search")
+    }
+
+    private fun searchFor(keyword: String) {
+        val search = compose.onNodeWithTag("search", useUnmergedTree = true)
+        search.performTextReplacement(keyword)
+        search.performImeAction()
+    }
+
+    private fun closeSearch() {
+        compose.onNodeWithText("取消").performClick()
+        waitAbsent("search")
     }
 
     private fun go(tag: String) {

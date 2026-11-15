@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalTextStyle
@@ -60,14 +61,31 @@ fun MmButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, 
 }
 
 @Composable
-fun MmField(value: String, onValueChange: (String) -> Unit, label: String, modifier: Modifier = Modifier, placeholder: String = "", error: String? = null, visualTransformation: VisualTransformation = VisualTransformation.None, keyboardOptions: KeyboardOptions = KeyboardOptions.Default, trailing: (@Composable () -> Unit)? = null, singleLine: Boolean = true, inputTag:String?=null, enabled:Boolean=true) {
+fun MmField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+    error: String? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    trailing: (@Composable () -> Unit)? = null,
+    singleLine: Boolean = true,
+    inputTag: String? = null,
+    enabled: Boolean = true,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    inputModifier: Modifier = Modifier,
+    leading: (@Composable () -> Unit)? = null,
+) {
     val c = LocalMemaoColors.current
     var focused by remember { mutableStateOf(false) }
     Column(modifier) {
         if(label.isNotBlank()){Text(label,color=c.secondary,style=MaterialTheme.typography.bodySmall);Spacer(Modifier.height(8.dp))}
-        Row(Modifier.fillMaxWidth().border(1.dp,if(error!=null)c.danger else if(focused)c.ink else c.divider,RoundedCornerShape(8.dp)).padding(start=12.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically) {
-            BasicTextField(value,onValueChange,modifier=Modifier.weight(1f).heightIn(min=54.dp).then(if(inputTag!=null)Modifier.testTag(inputTag)else Modifier).onFocusChanged {focused=it.isFocused}.padding(vertical=14.dp),
-                textStyle=MaterialTheme.typography.bodyLarge.copy(color=c.ink),singleLine=singleLine,enabled=enabled,visualTransformation=visualTransformation,keyboardOptions=keyboardOptions,cursorBrush=SolidColor(c.ink),
+        Row(Modifier.fillMaxWidth().border(1.dp,if(error!=null)c.danger else if(focused)c.ink else c.divider,RoundedCornerShape(8.dp)).padding(start=if(leading==null)12.dp else 4.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically) {
+            leading?.invoke()
+            BasicTextField(value,onValueChange,modifier=Modifier.weight(1f).heightIn(min=54.dp).then(if(inputTag!=null)Modifier.testTag(inputTag)else Modifier).then(inputModifier).onFocusChanged {focused=it.isFocused}.padding(vertical=14.dp),
+                textStyle=MaterialTheme.typography.bodyLarge.copy(color=c.ink),singleLine=singleLine,enabled=enabled,visualTransformation=visualTransformation,keyboardOptions=keyboardOptions,keyboardActions=keyboardActions,cursorBrush=SolidColor(c.ink),
                 // The caret is shorter than bodyLarge's 30.sp line and would otherwise
                 // sit against the top of the field. Center it with the placeholder.
                 decorationBox={inner -> Box(contentAlignment=Alignment.CenterStart) {if(value.isEmpty())Text(placeholder,color=c.secondary,fontSize=13.sp);inner()}})

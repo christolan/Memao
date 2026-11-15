@@ -61,7 +61,7 @@ class UntaggedFilterTest {
         }
     }
 
-    @Test fun drawerOptionIntersectsSearchAndDoesNotCollideWithRealTagNamedUntagged() {
+    @Test fun searchSubmitsFromKeyboardReusesHistoryAndKeepsUntaggedDistinctFromNamedTag() {
         val gateway = FilterGateway()
         val vm = start(gateway)
         awaitCount(vm, 5)
@@ -79,20 +79,62 @@ class UntaggedFilterTest {
         compose.onNodeWithTag("tag:无标签").assertIsNotSelected()
         saveScreenshot("untagged-compact-drawer.png")
         compose.onNodeWithTag("drawerClose").performClick()
+        val beforeSearch = gateway.callCount()
+        openSearch()
+        compose.onNodeWithText("暂无搜索记录").assertIsDisplayed()
         compose.onNodeWithTag("search").performTextReplacement("hello")
-        awaitNames(vm, setOf("memos/plain1", "memos/plain3"))
+        compose.onNodeWithTag("memo:memos/plain3").assertDoesNotExist()
+        assertEquals(beforeSearch, gateway.callCount())
+        compose.onNodeWithTag("search").performImeAction()
+        awaitSearchNames(vm, setOf("memos/plain1", "memos/plain3"))
+        compose.onNodeWithTag("memo:memos/plain3").assertIsDisplayed()
+        saveScreenshot("search-compact-results.png")
+        assertEquals("hello", gateway.lastCall().query.keyword)
+        assertTrue(gateway.lastCall().query.untagged)
+        closeSearch()
+        awaitCount(vm, 3)
+        assertEquals(beforeSearch + 1, gateway.callCount())
+        compose.onNodeWithTag("pageTitle").assertTextEquals("笔记 无标签")
+
         selectFilter("tag:无标签")
         awaitNames(vm, setOf("memos/named"))
-        compose.runOnIdle { assertFalse(vm.state.untagged); assertEquals("hello", vm.state.keyword) }
         compose.onNodeWithTag("pageTitle").assertTextEquals("笔记 #无标签")
-        selectFilter("filter:untagged")
-        awaitNames(vm, setOf("memos/plain1", "memos/plain3"))
-        compose.runOnIdle { assertNull(vm.state.tag); assertTrue(vm.notes.query.untagged) }
-        selectFilter("filter:untagged")
-        awaitCount(vm, 4)
-        compose.runOnIdle { assertFalse(vm.state.untagged); assertNull(vm.state.tag); assertEquals("hello", vm.state.keyword) }
+        openSearch()
+        compose.onNodeWithText("最近搜索").assertIsDisplayed()
+        saveScreenshot("search-compact-history.png")
+        compose.onNodeWithText("hello").assertHasClickAction().performClick()
+        awaitSearchNames(vm, setOf("memos/named"))
+        assertEquals("无标签", gateway.lastCall().query.tag)
+        assertFalse(gateway.lastCall().query.untagged)
+
+        compose.onNodeWithTag("search").performTextReplacement("未提交")
         compose.onNodeWithContentDescription("清除关键词").performClick()
+        compose.onNodeWithText("hello").assertIsDisplayed()
+        compose.onNodeWithText("未提交").assertDoesNotExist()
+        closeSearch()
+        selectFilter("tag:无标签")
         awaitCount(vm, 5)
+    }
+
+    @Test fun searchPaginationDoesNotChangeNotesPagination() {
+        val gateway = FilterGateway(pageSize = 2)
+        val vm = start(gateway)
+        awaitNames(vm, setOf("memos/plain3", "memos/plain2"))
+        val originalList = compose.runOnIdle { vm.notes.listState }
+        openSearch()
+        submitKeyword("hello")
+        awaitSearchNames(vm, setOf("memos/plain3", "memos/plain1"))
+        compose.onNodeWithTag("searchResults").performScrollToNode(hasText("加载更多"))
+        compose.onNodeWithText("加载更多").performClick()
+        awaitSearchNames(vm, setOf("memos/plain3", "memos/plain1", "memos/named", "memos/daily"))
+        assertEquals("2", gateway.lastCall().token)
+        assertEquals("hello", gateway.lastCall().query.keyword)
+        closeSearch()
+        awaitNames(vm, setOf("memos/plain3", "memos/plain2"))
+        compose.runOnIdle {
+            assertSame(originalList, vm.notes.listState)
+            assertTrue(vm.notes.state.hasMore)
+        }
     }
 
     @Test fun paginationRefreshNavigationAndAccountRestorationKeepUntaggedIndependent() {
@@ -118,37 +160,54 @@ class UntaggedFilterTest {
         awaitCount(vm, 2)
         assertEquals("", gateway.lastCall().token)
         assertTrue(gateway.lastCall().query.untagged)
-        compose.runOnIdle { vm.setKeyword("hello") }
-        awaitNames(vm, setOf("memos/plain1", "memos/plain3"))
+        openSearch()
+        submitKeyword("hello")
+        awaitSearchNames(vm, setOf("memos/plain1", "memos/plain3"))
+        submitKeyword("Another")
+        awaitSearchNames(vm, setOf("memos/plain2"))
+        submitKeyword("HELLO")
+        awaitSearchNames(vm, setOf("memos/plain1", "memos/plain3"))
         val firstAccount = compose.runOnIdle { vm.state.account!! }
         val secondAccount = runBlocking { repository!!.connect("https://second.fixture.invalid", "fixture-only-token") }
         compose.waitUntil(10_000) { vm.state.accountId == secondAccount.id && !vm.state.loading && vm.state.memos.size == 2 }
-        compose.runOnIdle { assertFalse(vm.state.untagged); assertEquals("", vm.state.keyword); vm.setTag("日常") }
+        compose.runOnIdle { assertFalse(vm.state.untagged); vm.setTag("日常") }
         awaitNames(vm, setOf("memos/daily"))
+        openSearch()
+        compose.onNodeWithText("暂无搜索记录").assertIsDisplayed()
+        closeSearch()
         compose.runOnIdle { vm.selectAccount(firstAccount) }
         compose.waitUntil(10_000) { vm.state.accountId == firstAccount.id && vm.state.untagged && !vm.state.loading && vm.state.memos.size == 2 }
-        compose.runOnIdle { assertEquals("hello", vm.state.keyword); assertNull(vm.state.tag) }
+        compose.runOnIdle { assertNull(vm.state.tag) }
         vm = replaceViewModel()
-        awaitNames(vm, setOf("memos/plain1", "memos/plain3"))
-        compose.runOnIdle { assertTrue(vm.state.untagged); assertEquals("hello", vm.state.keyword); assertNull(vm.state.tag) }
+        awaitNames(vm, setOf("memos/plain2", "memos/plain3"))
+        compose.runOnIdle { assertTrue(vm.state.untagged); assertNull(vm.state.tag) }
         compose.onNodeWithTag("pageTitle").assertTextEquals("笔记 无标签")
+        openSearch()
+        compose.onNodeWithText("HELLO").assertIsDisplayed()
+        compose.onNodeWithText("Another").assertIsDisplayed()
+        compose.onNodeWithText("hello").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(listOf("HELLO", "Another"), vm.search.recent) }
     }
 
-    @Test fun offlineFilterUsesCachedTagsAndKeepsKeywordWhenReturningToAll() {
+    @Test fun offlineSearchUsesCachedTagsAndRecentKeywordWhenReopenedWithoutTag() {
         val gateway = FilterGateway()
         val vm = start(gateway)
         awaitCount(vm, 5)
         gateway.offline = true
         selectFilter("filter:untagged")
         compose.waitUntil(10_000) { vm.state.offline && !vm.state.loading && vm.state.memos.size == 3 }
-        compose.onNodeWithTag("search").performTextReplacement("hello")
-        awaitNames(vm, setOf("memos/plain1", "memos/plain3"))
+        openSearch()
+        submitKeyword("hello")
+        awaitSearchNames(vm, setOf("memos/plain1", "memos/plain3"))
+        compose.onNodeWithText("当前只搜索已缓存的内容，联网后可以查找更多。").assertIsDisplayed()
+        saveScreenshot("search-offline.png")
+        closeSearch()
         selectFilter("tag:all")
-        awaitCount(vm, 4)
-        compose.runOnIdle { assertTrue(vm.state.offline); assertEquals("hello", vm.state.keyword); assertFalse(vm.state.untagged) }
-        selectFilter("filter:untagged")
-        awaitNames(vm, setOf("memos/plain1", "memos/plain3"))
-        saveScreenshot("untagged-offline.png")
+        awaitCount(vm, 5)
+        compose.runOnIdle { assertTrue(vm.state.offline); assertFalse(vm.state.untagged) }
+        openSearch()
+        compose.onNodeWithText("hello").performClick()
+        awaitSearchNames(vm, setOf("memos/plain1", "memos/plain3", "memos/named", "memos/daily"))
     }
 
     @Test fun optionRemainsAvailableWithoutAnyTagsAndUsesFilteredEmptyState() {
@@ -160,13 +219,32 @@ class UntaggedFilterTest {
         compose.waitUntil(10_000) { vm.state.untagged && !vm.state.loading && vm.state.memos.size == 1 }
         compose.runOnIdle { vm.setTheme(ThemeMode.DARK) }
         compose.waitUntil(10_000) { vm.state.settings.theme == ThemeMode.DARK }
-        compose.onNodeWithTag("search").performTextReplacement("不存在")
-        awaitCount(vm, 0)
+        openSearch()
+        submitKeyword("不存在")
+        awaitSearchNames(vm, emptySet())
         compose.onNodeWithText("没有找到记录").assertIsDisplayed()
         compose.onNodeWithText("写下此刻的想法").assertDoesNotExist()
+        saveScreenshot("search-wide-dark-empty.png")
+        closeSearch()
         compose.onNodeWithTag("filter:untagged").assertIsSelected()
         compose.onNodeWithTag("pageTitle").assertTextEquals("笔记 无标签")
-        saveScreenshot("untagged-wide-dark-empty.png")
+    }
+
+    private fun openSearch() {
+        compose.onNodeWithTag("search").assertDoesNotExist()
+        compose.onNodeWithTag("openSearch").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("search").assertIsDisplayed()
+    }
+
+    private fun closeSearch() {
+        compose.onNodeWithText("取消").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("search").assertDoesNotExist()
+    }
+
+    private fun submitKeyword(keyword: String) {
+        val search = compose.onNodeWithTag("search")
+        search.performTextReplacement(keyword)
+        search.performImeAction()
     }
 
     private fun openDrawer() {
@@ -184,6 +262,11 @@ class UntaggedFilterTest {
 
     private fun awaitNames(vm: MemaoViewModel, names: Set<String>) = compose.waitUntil(10_000) {
         !vm.state.loading && vm.notes.state.cacheReady && vm.state.memos.map { it.name }.toSet() == names
+    }
+
+    private fun awaitSearchNames(vm: MemaoViewModel, names: Set<String>) = compose.waitUntil(10_000) {
+        val search = vm.search.state
+        search.keyword.isNotEmpty() && !search.loading && search.cacheReady && search.memos.map { it.name }.toSet() == names
     }
 
     private fun start(gateway: FilterGateway): MemaoViewModel {

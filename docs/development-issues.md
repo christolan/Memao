@@ -2,6 +2,12 @@
 
 > 各条问题记录保留当时的复现与验收环境。当前版本与设备反馈见 [项目上下文索引](README.md#版本与验收状态)，各版本验收证据见 [开发准备与验收](development-and-acceptance.md)。
 
+## I36 搜索输入状态的 JVM 签名冲突
+
+2026-11-15，独立搜索页的首次 Debug 与 Release 编译发现 `input` 属性生成的 JVM setter 与同名 `setInput(String)` 方法冲突。将输入更新方法命名为 `updateInput` 后重新构建。见 [R75 验收](development-and-acceptance.md#独立搜索页--r75)。
+
+仪器 APK 首次编译另发现 Compose 的 `performTextReplacement` 返回 `Unit`。测试保留同一搜索框节点，将替换文本与提交 IME 操作改为两次独立调用。
+
 ## I35 品牌图标宽屏验收夹具被裁切
 
 2026-11-15，Android 17 模拟器以 1080 × 2400 像素、默认 420 dpi 启动时，1000 dp 的宽屏抽屉测试夹具超出了实际可见宽度，导致「设置」行不可见。将仅用于验收的模拟器密度设为 160 dpi 后，宽屏深色和 1.8 倍字体验收通过。应用布局未因此调整。见 [品牌图标验收](development-and-acceptance.md#品牌图标--r74)。

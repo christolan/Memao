@@ -103,7 +103,9 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
         TrackPageScroll(page)
         val refreshState=rememberPullToRefreshState()
         Column(Modifier.fillMaxSize().testTag("feedPage")) {
-            MmTopBar(title)
+            MmTopBar(title) {
+                if(notes)MmIconButton(MmIcon.SEARCH,"搜索",modifier=Modifier.testTag("openSearch"),onClick=vm::openSearch)
+            }
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().pullToRefresh(
                 state=refreshState,isRefreshing=s.refreshing,enabled=!s.loading,onRefresh=page::pullRefresh,
             )) {
@@ -117,10 +119,6 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
                         Column {
                             Text(if(notes)LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日")) else "已归档的记录",color=c.secondary,style=MaterialTheme.typography.labelSmall)
                             Spacer(Modifier.height(16.dp))
-                            if(notes) {
-                                MmField(s.keyword,vm::setKeyword,"",placeholder="搜索你的记录",inputTag="search",trailing={if(s.keyword.isNotEmpty())MmIconButton(MmIcon.CLOSE,"清除关键词"){vm.setKeyword("")}else Box(Modifier.size(48.dp),contentAlignment=Alignment.Center){LineIcon(MmIcon.SEARCH,tint=c.secondary)}})
-                                Spacer(Modifier.height(16.dp))
-                            }
                             MmRule()
                         }
                     }
@@ -133,10 +131,10 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
                     }}
                     if(s.loading&&!s.refreshing&&s.memos.isEmpty())items(3) {SkeletonRow()}
                     if((!s.loading||s.refreshing)&&s.memos.isEmpty())item {
-                        val filtered=notes&&(s.keyword.isNotBlank()||s.tag!=null||s.untagged)
+                        val filtered=notes&&(s.tag!=null||s.untagged)
                         EmptyFeed(if(filtered)"没有找到记录" else if(!notes)"归档为空" else "写下此刻的想法",
-                            if(shared.offline)"当前只搜索已缓存的内容，联网后可以查找更多。"
-                            else if(filtered)"试试其他关键词或标签。"
+                            if(shared.offline)"当前只显示已缓存的内容，联网后可查看更多。"
+                            else if(filtered)"试试其他标签。"
                             else if(!notes)"归档后的笔记会出现在这里，可随时恢复。"
                             else "文字、图片或一段音频，都值得留住。",
                             icon=if(filtered)MmIcon.SEARCH else if(!notes)MmIcon.ARCHIVE else MmIcon.NOTES)
@@ -160,7 +158,7 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
 }
 
 @Composable
-private fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewModel,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean,expanded:Boolean,onToggle:()->Unit) {
+internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewModel,onGallery:(List<MediaDisplay>,Int)->Unit,compact:Boolean,expanded:Boolean,onToggle:()->Unit) {
     val c=LocalMemaoColors.current
     val clipboard=LocalClipboardManager.current
     val shared=vm.state
@@ -221,7 +219,7 @@ private fun DraftRow(draft:Draft,selected:Boolean,onClick:()->Unit) {
 }
 
 @Composable
-private fun EmptyFeed(title:String,message:String,icon:MmIcon=MmIcon.NOTES) {
+internal fun EmptyFeed(title:String,message:String,icon:MmIcon=MmIcon.NOTES) {
     val c=LocalMemaoColors.current
     Column(Modifier.fillMaxWidth().padding(vertical=64.dp),horizontalAlignment=Alignment.CenterHorizontally) {
         LineIcon(icon,Modifier.size(MmIconSize.Empty),tint=c.secondary);Spacer(Modifier.height(20.dp))
@@ -230,7 +228,7 @@ private fun EmptyFeed(title:String,message:String,icon:MmIcon=MmIcon.NOTES) {
 }
 
 @Composable
-private fun SkeletonRow() {
+internal fun SkeletonRow() {
     val c=LocalMemaoColors.current
     Column(Modifier.fillMaxWidth().padding(vertical=24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
         Box(Modifier.fillMaxWidth(.35f).height(8.dp).background(c.soft));Box(Modifier.fillMaxWidth().height(12.dp).background(c.soft));Box(Modifier.fillMaxWidth(.7f).height(12.dp).background(c.soft))

@@ -24,13 +24,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 
-enum class UiPage(val title:String) { NOTES("笔记"), DRAFTS("草稿"), ARCHIVE("归档"), SETTINGS("设置"), ACCOUNTS("服务器账号"), LOGIN("连接服务器") }
+enum class UiPage(val title:String) { NOTES("笔记"), SEARCH("搜索"), DRAFTS("草稿"), ARCHIVE("归档"), SETTINGS("设置"), ACCOUNTS("服务器账号"), LOGIN("连接服务器") }
 
 data class MemaoUiState(
     val accounts:List<Account> = emptyList(), val accountId:String? = null,
     val settings:AppSettings = AppSettings(),val page:UiPage = UiPage.LOGIN,
     val memos:List<Memo> = emptyList(),val drafts:List<Draft> = emptyList(),val tags:List<TagCount> = emptyList(),
-    val keyword:String = "",val tag:String? = null,val untagged:Boolean = false,val draftDetail:Draft? = null,
+    val tag:String? = null,val untagged:Boolean = false,val draftDetail:Draft? = null,
     val editor:Draft? = null,val preview:Boolean = false,val editorNew:Boolean = false,val editorUnchanged:Boolean = false,
     val paneOpen:Boolean = false,val loading:Boolean = false,val refreshing:Boolean = false,val busy:Boolean = false,
     val sending:Boolean = false,val importing:Boolean = false,val hasMore:Boolean = false,
@@ -70,16 +70,18 @@ class MemaoViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T:ViewModel> create(modelClass:Class<T>):T=when(modelClass) {
             NotesViewModel::class.java->NotesViewModel(repository,saved)
+            SearchViewModel::class.java->SearchViewModel(repository,saved)
             ArchiveViewModel::class.java->ArchiveViewModel(repository,saved)
             DraftsViewModel::class.java->DraftsViewModel(repository,saved)
             else->error("Unknown page ViewModel")
         } as T
     })
     val notes=pageProvider[NotesViewModel::class.java]
+    val search=pageProvider[SearchViewModel::class.java]
     val archive=pageProvider[ArchiveViewModel::class.java]
     val drafts=pageProvider[DraftsViewModel::class.java]
     private val currentList:MemoListViewModel?
-        get()=when(shellState.page){UiPage.NOTES->notes;UiPage.ARCHIVE->archive;else->null}
+        get()=when(shellState.page){UiPage.NOTES->notes;UiPage.SEARCH->search;UiPage.ARCHIVE->archive;else->null}
     // Compatibility projection for the shared drawer/draft preview/editor. Lists themselves read
     // their page ViewModel directly; this projection owns no list data or request state.
     val state:MemaoUiState
@@ -88,7 +90,7 @@ class MemaoViewModel(
             val localDrafts=drafts.state.drafts
             return shellState.copy(
                 memos=list?.memos.orEmpty(),drafts=localDrafts,tags=notes.state.tags,
-                keyword=notes.state.keyword,tag=notes.state.tag,untagged=notes.state.untagged,
+                tag=notes.state.tag,untagged=notes.state.untagged,
                 loading=list?.loading?:false,refreshing=list?.refreshing?:false,hasMore=list?.hasMore?:false,
                 busy=shellState.busy||shellState.preparingMemo!=null,
                 editorUnchanged=shellState.editor?.let {current->editorBaseline?.let(current::hasSameContentAs)}?:false,
@@ -111,14 +113,14 @@ class MemaoViewModel(
     private val networkCallback=object:ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network:Network){viewModelScope.launch {
             shellState=shellState.copy(offline=false)
-            notes.onNetworkAvailable();archive.onNetworkAvailable()
+            notes.onNetworkAvailable();search.onNetworkAvailable();archive.onNetworkAvailable()
         }}
         override fun onLost(network:Network){viewModelScope.launch {shellState=shellState.copy(offline=connection.activeNetwork==null)}}
     }
     init {
         // A new ViewModel starts a new navigation session. Persistent drafts and filters remain;
         // configuration changes and background returns reuse this ViewModel and keep their scene.
-        saved.keys().filter {it.startsWith("page:")||it.startsWith("editor:")}.forEach {saved.remove<String>(it)}
+        saved.keys().filter {it.startsWith("page:")||it.startsWith("editor:")||it.startsWith("keyword:")}.forEach {saved.remove<String>(it)}
         shellState=shellState.copy(offline=connection.activeNetwork==null)
         runCatching {connection.registerDefaultNetworkCallback(networkCallback)}
         viewModelScope.launch {repository.accounts.collect {shellState=shellState.copy(accounts=it)}}
@@ -138,6 +140,7 @@ class MemaoViewModel(
                         files=emptyMap(),loadingFiles=emptySet(),error=null,saveError=null,message=null,
                         preview=false,editorNew=false,gallery=null,
                     )
+                    search.close()
                     notes.bindAccount(id);archive.bindAccount(id);drafts.bindAccount(id)
                     if(id!=null) {
                         shellState=shellState.copy(page=UiPage.NOTES)
@@ -147,7 +150,7 @@ class MemaoViewModel(
             }
         }
     }
-    private fun query()=if(state.page==UiPage.ARCHIVE)archive.query else notes.query
+    private fun query()=currentList?.query?:notes.query
     fun connect(server:String,token:String) {
         if(state.busy)return
         viewModelScope.launch {
@@ -157,7 +160,7 @@ class MemaoViewModel(
                 val previousAccount=state.accountId
                 val account=repository.connect(server,token)
                 cancelMemoRequest()
-                shellState=shellState.copy(pendingAuthentication=null,page=UiPage.NOTES,keyword="",tag=null,error=null,loginError=null,
+                shellState=shellState.copy(pendingAuthentication=null,page=UiPage.NOTES,tag=null,error=null,loginError=null,
                     editor=null,draftDetail=null,paneOpen=false,conflict=null)
                 if(account.id==previousAccount&&account.id==state.accountId)notes.resetFiltersAndRefresh()
             } catch(e:Exception) {if(e is CancellationException)throw e;shellState=shellState.copy(loginError=readable(e))}
@@ -166,13 +169,30 @@ class MemaoViewModel(
     }
     fun loginError(message:String){shellState=shellState.copy(loginError=message)}
     fun showLogin(account:Account?=null) {leaveEditor {
+        if(shellState.page==UiPage.SEARCH)search.close()
         shellState=shellState.copy(page=UiPage.LOGIN,pendingAuthentication=account,loginError=null,loading=false,refreshing=false)
     }}
     fun navigate(page:UiPage) {
+        if(page==UiPage.SEARCH) {
+            openSearch()
+            return
+        }
         leaveEditor {
+            if(shellState.page==UiPage.SEARCH)search.close()
             shellState=shellState.copy(page=page,paneOpen=false,draftDetail=null,error=null,conflict=null,loading=false,refreshing=false)
             currentList?.ensureLoaded()
         }
+    }
+    fun openSearch() {
+        if(shellState.page!=UiPage.NOTES)return
+        val id=shellState.accountId?:return
+        leaveEditor {
+            search.open(id,notes.query)
+            shellState=shellState.copy(page=UiPage.SEARCH,paneOpen=false,draftDetail=null,error=null,conflict=null)
+        }
+    }
+    fun closeSearch() {
+        if(shellState.page==UiPage.SEARCH)navigate(UiPage.NOTES)
     }
     fun selectAccount(account:Account) {
         leaveEditor {audio.stop();repository.selectAccount(account.id)}
@@ -186,10 +206,17 @@ class MemaoViewModel(
             }catch(e:Exception){report(e)}
         }
     }
-    fun setKeyword(value:String) {
+    fun searchInputChanged(value:String) {
+        if(shellState.page!=UiPage.SEARCH||value==search.input)return
         cancelMemoRequest()
-        shellState=shellState.copy(paneOpen=false,error=null)
-        notes.setKeyword(value)
+        shellState=shellState.copy(error=null)
+        search.updateInput(value)
+    }
+    fun submitSearch(value:String) {
+        if(shellState.page!=UiPage.SEARCH||value.isBlank())return
+        cancelMemoRequest()
+        shellState=shellState.copy(error=null)
+        search.submit(value)
     }
     fun setTag(value:String?) {
         cancelMemoRequest()
@@ -353,9 +380,11 @@ class MemaoViewModel(
         }
     }
     fun back() {
+        val preparing=shellState.preparingMemo!=null
         cancelMemoRequest()
         if(state.editor!=null)leaveEditor {shellState=shellState.copy(paneOpen=false,draftDetail=null,conflict=null)}
         else if(state.conflict!=null)shellState=shellState.copy(conflict=null)
+        else if(state.page==UiPage.SEARCH) {if(!preparing)closeSearch()}
         else if(state.page==UiPage.LOGIN||state.page==UiPage.ACCOUNTS)navigate(if(state.accountId==null)UiPage.LOGIN else UiPage.SETTINGS)
         else shellState=shellState.copy(paneOpen=false,draftDetail=null)
     }
@@ -443,6 +472,7 @@ class MemaoViewModel(
             repository.deleteMemo(id,memo.name)
             if(state.accountId==id) {
                 notes.expandedMemos.remove(memo.name)
+                search.expandedMemos.remove(memo.name)
                 archive.expandedMemos.remove(memo.name)
             }
         }

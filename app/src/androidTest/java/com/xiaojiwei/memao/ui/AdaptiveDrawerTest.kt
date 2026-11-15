@@ -201,8 +201,8 @@ class AdaptiveDrawerTest {
         val feedTitle = hasTestTag("pageTitle") and hasAnyAncestor(hasTestTag("feedPage"))
         val outsideDrawer = !hasAnyAncestor(hasTestTag("navigationDrawer")) and !hasAnyAncestor(hasTestTag("inactiveNavigationDrawer"))
         compose.onNode(feedTitle).assertTextEquals("笔记")
-        compose.onNodeWithTag("search").performTextInput("记录")
-        compose.waitUntil(10_000) { vm.state.keyword == "记录" && vm.state.memos.size == 31 }
+        compose.onNodeWithTag("openSearch").assertIsDisplayed()
+        compose.onNodeWithTag("search").assertDoesNotExist()
         compose.onNodeWithTag("tag:日常").assertIsNotDisplayed()
         compose.onNodeWithTag("activeTagFilter").assertDoesNotExist()
         openDrawer()
@@ -217,7 +217,7 @@ class AdaptiveDrawerTest {
             compose.runOnIdle { assertEquals("Filtering waits until the modal drawer finishes closing", null, vm.state.tag) }
             compose.onNodeWithTag("navigationDrawer").assertIsDisplayed()
         } finally { compose.mainClock.autoAdvance = true }
-        compose.waitUntil(10_000) { vm.state.tag == "日常" && vm.state.memos.map { it.name }.toSet() == matching.map { it.name }.toSet() }
+        compose.waitUntil(10_000) { vm.state.tag == "日常" && vm.state.memos.map { it.name }.toSet() == (matching + otherKeyword).map { it.name }.toSet() }
         compose.onNodeWithTag("navigationDrawer").assertIsNotDisplayed()
         compose.onNodeWithTag("tag:日常").assertIsNotDisplayed()
         compose.onNode(feedTitle).assertTextEquals("笔记 #日常").assertIsDisplayed().assertHasNoClickAction()
@@ -236,12 +236,18 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("tag:日常").performScrollTo().assertIsSelected()
         saveScreenshot("drawer-tags-compact-open.png")
         pressBack()
+        compose.onNodeWithTag("openSearch").assertIsDisplayed().performClick()
+        val search = compose.onNodeWithTag("search")
+        search.performTextReplacement("记录")
+        search.performImeAction()
+        compose.waitUntil(10_000) { !vm.search.state.loading && vm.search.state.memos.map { it.name }.toSet() == matching.map { it.name }.toSet() }
         compose.runOnIdle { width.value = 1000.dp }
-        compose.waitForIdle()
+        compose.onNodeWithTag("search").assertIsDisplayed().assertTextEquals("记录")
+        compose.onNodeWithTag("searchResults").assertIsDisplayed()
+        compose.onNodeWithText("取消").assertIsDisplayed().performClick()
         compose.onNode(feedTitle).assertTextEquals("笔记 #日常").assertIsDisplayed()
         compose.onNodeWithTag("navNotes").assertTextEquals("笔记")
         compose.runOnIdle {
-            assertEquals("记录", vm.state.keyword)
             assertEquals("日常", vm.state.tag)
             assertEquals(initialIndex, vm.scroll(key).first)
             width.value = 420.dp
@@ -251,13 +257,12 @@ class AdaptiveDrawerTest {
         compose.runOnIdle { width.value = 1000.dp }
         compose.onNodeWithTag("tag:日常").performScrollTo().assertIsSelected()
         compose.onNodeWithTag("tag:all").performScrollTo().performClick()
-        compose.waitUntil(10_000) { vm.state.tag == null && vm.state.memos.map { it.name }.toSet() == (matching + otherTag).map { it.name }.toSet() }
-        compose.runOnIdle { assertEquals("记录", vm.state.keyword) }
+        compose.waitUntil(10_000) { vm.state.tag == null && vm.state.memos.map { it.name }.toSet() == (matching + otherTag + otherKeyword).map { it.name }.toSet() }
         compose.onNodeWithTag("navigationDrawer").assertIsDisplayed()
         compose.onNodeWithTag("tag:all").assertIsSelected()
         compose.onNodeWithTag("activeTagFilter").assertDoesNotExist()
         compose.onNode(feedTitle).assertTextEquals("笔记")
-        compose.onNodeWithTag("search").assertTextEquals("记录")
+        compose.onNodeWithTag("search").assertDoesNotExist()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("memo:${otherTag.name}"))
         compose.onNodeWithTag("memo:${otherTag.name}").assertIsDisplayed().assertTextContains(otherTag.content).performClick()
         compose.runOnIdle { assertTrue(!vm.state.paneOpen); assertEquals(null, vm.state.editor) }
@@ -387,8 +392,8 @@ class AdaptiveDrawerTest {
         val gateway = DrawerGateway(listOf(memo))
         val vm = start(gateway)
         compose.onNodeWithContentDescription("刷新笔记").assertDoesNotExist()
-        compose.runOnIdle { vm.setTag("日常"); vm.setKeyword("记录") }
-        compose.waitUntil(10_000) { !vm.state.loading && vm.state.memos.size == 1 && gateway.lastQuery?.keyword == "记录" }
+        compose.runOnIdle { vm.setTag("日常") }
+        compose.waitUntil(10_000) { !vm.state.loading && vm.state.memos.size == 1 && gateway.lastQuery?.tag == "日常" }
         val before = gateway.listCalls.get()
         val gate = CompletableDeferred<Unit>()
         gateway.listGate = gate
@@ -400,7 +405,6 @@ class AdaptiveDrawerTest {
         pullFeed()
         compose.runOnIdle {
             assertEquals(before + 1, gateway.listCalls.get())
-            assertEquals("记录", vm.state.keyword)
             assertEquals("日常", vm.state.tag)
         }
         gate.complete(Unit)
@@ -430,15 +434,28 @@ class AdaptiveDrawerTest {
     @Test fun pullRefreshWorksForEmptyResultsAndArchiveButNotDrafts() {
         val gateway = DrawerGateway()
         val vm = start(gateway)
-        compose.runOnIdle { vm.setKeyword("不存在") }
-        compose.mainClock.advanceTimeBy(500)
+        compose.runOnIdle { vm.setTag("不存在") }
         compose.waitUntil(10_000) { !vm.state.loading && gateway.listCalls.get() >= 2 }
         var before = gateway.listCalls.get()
         pullFeed()
         compose.waitUntil(10_000) { gateway.listCalls.get() == before + 1 && !vm.state.loading }
-        compose.runOnIdle { assertEquals("不存在", vm.state.keyword) }
+        compose.runOnIdle { assertEquals("不存在", vm.state.tag) }
         compose.onNodeWithText("没有找到记录").assertIsDisplayed()
         saveScreenshot("pull-refresh-empty.png")
+
+        compose.onNodeWithTag("openSearch").performClick()
+        compose.onNodeWithTag("search").performTextReplacement("无匹配正文")
+        compose.onNodeWithContentDescription("执行搜索").assertIsEnabled().performClick()
+        compose.waitUntil(10_000) { vm.search.state.keyword == "无匹配正文" && !vm.search.state.loading }
+        compose.onNodeWithText("没有找到记录").assertIsDisplayed()
+        before = gateway.listCalls.get()
+        pullFeed("searchResults")
+        compose.waitUntil(10_000) { gateway.listCalls.get() == before + 1 && !vm.search.state.loading }
+        compose.runOnIdle {
+            assertEquals("无匹配正文", vm.search.state.keyword)
+            assertEquals("不存在", vm.search.state.tag)
+        }
+        compose.onNodeWithTag("cancelSearch").performClick()
 
         compose.runOnIdle { width.value = 1000.dp; vm.navigate(UiPage.ARCHIVE) }
         compose.waitUntil(10_000) { !vm.state.loading && vm.state.page == UiPage.ARCHIVE }
@@ -457,8 +474,8 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("feedRefreshIndicator").assertDoesNotExist()
     }
 
-    private fun pullFeed() {
-        compose.onNodeWithTag("feedList").performTouchInput {
+    private fun pullFeed(listTag: String = "feedList") {
+        compose.onNodeWithTag(listTag).performTouchInput {
             swipe(Offset(width * .5f, height * .25f), Offset(width * .5f, height * .9f), 500)
         }
     }

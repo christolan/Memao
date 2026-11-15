@@ -200,11 +200,22 @@ class IndependentPagesTest {
         compose.runOnIdle { assertEquals(archiveNames, vm.state.memos.map { it.name }); assertFalse(vm.state.refreshing) }
         navigate(vm, UiPage.NOTES)
         assertEquals(before + 1, gateway.callCount())
-        compose.runOnIdle { vm.setKeyword("偶数"); vm.setTag("日常") }
-        compose.waitUntil(10_000) { !vm.state.loading && vm.state.memos.size == 16 && vm.state.keyword == "偶数" && vm.state.tag == "日常" }
+        compose.runOnIdle { vm.setTag("日常") }
+        compose.waitUntil(10_000) { !vm.state.loading && vm.state.memos.size == 32 && vm.state.tag == "日常" }
         val filteredNames = compose.runOnIdle { vm.state.memos.map { it.name } }
         val filteredPosition = scrollTo(5)
+        compose.onNodeWithTag("openSearch").performClick()
+        submitKeyword("偶数")
+        compose.waitUntil(10_000) {
+            val search = vm.search.state
+            !search.loading && search.memos.size == 16 && search.keyword == "偶数" && search.tag == "日常"
+        }
         val filteredCalls = gateway.callCount()
+        compose.onNodeWithText("取消").performClick()
+        compose.runOnIdle {
+            assertEquals(filteredNames, vm.notes.state.memos.map { it.name })
+            assertEquals(filteredPosition, position(vm.notes.listState))
+        }
         navigate(vm, UiPage.ARCHIVE)
         compose.runOnIdle {
             assertEquals(archiveNames, vm.state.memos.map { it.name })
@@ -215,10 +226,38 @@ class IndependentPagesTest {
         compose.runOnIdle {
             assertEquals(filteredNames, vm.state.memos.map { it.name })
             assertEquals(filteredPosition, position(vm.notes.listState))
-            assertEquals("偶数", vm.state.keyword)
             assertEquals("日常", vm.state.tag)
         }
         assertEquals(filteredCalls, gateway.callCount())
+    }
+
+    @Test fun cancellingAnInFlightSearchCannotReplaceTheNextSessionsResults() {
+        val gateway = PagesGateway(pageSize = 100)
+        val vm = start(gateway)
+        awaitNotes(vm, 32)
+        val response = PendingList().also { pending.add(it); gateway.pending = it }
+        compose.onNodeWithTag("openSearch").performClick()
+        submitKeyword("偶数")
+        compose.waitUntil(10_000) { response.started.isCompleted }
+        compose.onNodeWithText("取消").performClick()
+        awaitNotes(vm, 32)
+
+        compose.onNodeWithTag("openSearch").performClick()
+        submitKeyword("奇数")
+        compose.waitUntil(10_000) { !vm.search.state.loading && vm.search.state.memos.size == 16 }
+        response.release.complete(Unit)
+        compose.waitUntil(10_000) { response.finished.isCompleted }
+        compose.runOnIdle {
+            assertEquals("奇数", vm.search.state.keyword)
+            assertTrue(vm.search.state.memos.all { it.content.contains("奇数") })
+            assertEquals(32, vm.notes.state.memos.size)
+        }
+    }
+
+    private fun submitKeyword(keyword: String) {
+        val search = compose.onNodeWithTag("search")
+        search.performTextReplacement(keyword)
+        search.performImeAction()
     }
 
     @Test fun sendingFromDraftsUpdatesNotesWithoutDiscardingLoadedPages() {

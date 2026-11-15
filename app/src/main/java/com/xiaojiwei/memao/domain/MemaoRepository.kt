@@ -41,6 +41,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONException
+
+private const val RECENT_SEARCH_LIMIT = 20
 
 /** Owns all account-scoped persistence and every explicit server write. No background publishing. */
 class MemaoRepository(
@@ -55,6 +59,8 @@ class MemaoRepository(
     private val dao = database.dao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val preferences = app.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+    private val searchHistoryLock = Any()
+    private val removedSearchAccounts = mutableSetOf<String>()
     private val root = (filesRoot ?: File(app.filesDir, "accounts")).apply { mkdirs() }
     private val localLock = Mutex()
     private val initialized = CompletableDeferred<Unit>()
@@ -121,6 +127,7 @@ class MemaoRepository(
                 if (previous == null) tokenVault.remove(id) else tokenVault.put(id, previous)
                 throw error
             }
+            synchronized(searchHistoryLock) { removedSearchAccounts.remove(id) }
         }
         selectAccount(id)
         value
@@ -141,6 +148,11 @@ class MemaoRepository(
             database.withTransaction {
                 dao.deleteAttempts(id); dao.deleteDrafts(id); dao.deleteMemos(id); dao.deleteBlobs(id); dao.deleteAccount(id)
             }
+            synchronized(searchHistoryLock) {
+                // A search from a still-visible screen must not restore history after removal.
+                removedSearchAccounts.add(id)
+                preferences.edit().remove("recent_searches_$id").apply()
+            }
             tokenVault.remove(id)
             File(root, id).deleteRecursively()
             preferences.edit().remove("viewed_$id").apply()
@@ -156,6 +168,26 @@ class MemaoRepository(
 
     fun lastViewed(accountId: String): String? = preferences.getString("viewed_$accountId", null)
     fun rememberViewed(accountId: String, name: String) { preferences.edit().putString("viewed_$accountId", name).apply() }
+
+    fun recentSearches(accountId: String): List<String> {
+        val stored = preferences.getString("recent_searches_$accountId", null) ?: return emptyList()
+        return try {
+            val entries = JSONArray(stored)
+            (0 until minOf(entries.length(), RECENT_SEARCH_LIMIT)).mapNotNull { entries.opt(it) as? String }
+        } catch (_: JSONException) {
+            emptyList()
+        }
+    }
+
+    fun rememberSearch(accountId: String, value: String): List<String> = synchronized(searchHistoryLock) {
+        if (accountId in removedSearchAccounts) return@synchronized emptyList()
+        val previous = recentSearches(accountId)
+        if (value.isBlank()) return@synchronized previous
+        val foldedKeyword = DomainRules.asciiFold(value)
+        val updated = (listOf(value) + previous.filter { DomainRules.asciiFold(it) != foldedKeyword }).take(RECENT_SEARCH_LIMIT)
+        preferences.edit().putString("recent_searches_$accountId", JSONArray(updated).toString()).apply()
+        updated
+    }
 
     fun observeMemos(accountId: String, query: MemoQuery = MemoQuery()): Flow<List<Memo>> =
         combine(dao.observeMemos(accountId), membership) { rows, visible ->

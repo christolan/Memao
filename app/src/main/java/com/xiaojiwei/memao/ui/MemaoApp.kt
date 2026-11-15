@@ -76,7 +76,7 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
         val imeVisible=WindowInsets.isImeVisible
         BoxWithConstraints(Modifier.fillMaxSize().background(c.background).safeDrawingPadding()) {
             val scale=LocalDensity.current.fontScale.coerceAtLeast(1f)
-            val navigationVisible=s.accountId!=null&&s.page!=UiPage.LOGIN
+            val navigationVisible=s.accountId!=null&&s.page!=UiPage.LOGIN&&s.page!=UiPage.SEARCH
             val permanentDrawer=navigationVisible&&maxWidth>=600.dp
             val drawerWidth=240.dp
             // Keep navigation available on medium windows without squeezing two content panes.
@@ -111,7 +111,7 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                     }
                 }
             }
-            BackHandler(!drawerVisible&&(s.editor!=null||s.paneOpen||s.conflict!=null||s.preparingMemo!=null||s.page==UiPage.ACCOUNTS||(s.page==UiPage.LOGIN&&s.accountId!=null))) {
+            BackHandler(!drawerVisible&&(s.editor!=null||s.paneOpen||s.conflict!=null||s.preparingMemo!=null||s.page==UiPage.SEARCH||s.page==UiPage.ACCOUNTS||(s.page==UiPage.LOGIN&&s.accountId!=null))) {
                 if(imeVisible)keyboard?.hide() else vm.back()
             }
             // The sheet handles open/predictive back; intercept back during the opening animation too.
@@ -146,7 +146,7 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                     // This content stays at the same composition site across all window sizes.
                     CompositionLocalProvider(LocalOpenNavigationDrawer provides openDrawer) {
                         Column(Modifier.weight(1f).fillMaxHeight()) {
-                            if(s.offline&&s.accountId!=null&&s.page!=UiPage.LOGIN)StateBanner("当前离线 · 仅浏览本机缓存，内容可能不是最新","联网后由你手动发送草稿。")
+                            if(s.offline&&s.accountId!=null&&s.page!=UiPage.LOGIN&&s.page!=UiPage.SEARCH)StateBanner("当前离线 · 仅浏览本机缓存，内容可能不是最新","联网后由你手动发送草稿。")
                             s.account?.takeIf {it.needsAuthentication}?.let {
                                 StateBanner("访问令牌已失效","缓存和草稿仍保留，更新令牌后可发送。",action={MmButton("更新令牌",{vm.showLogin(it)})})
                             }
@@ -166,6 +166,7 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                                             when(s.page) {
                                                 UiPage.DRAFTS->DraftsPage(vm,vm.drafts,wide&&showDetail)
                                                 UiPage.ARCHIVE->ArchivePage(vm,vm.archive,audio,showGallery,wide&&showDetail)
+                                                UiPage.SEARCH->SearchPage(vm,vm.search,audio,showGallery,wide&&showDetail)
                                                 else->NotesPage(vm,vm.notes,audio,showGallery,wide&&showDetail)
                                             }
                                         }
