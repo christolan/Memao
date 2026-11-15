@@ -229,11 +229,20 @@ class EditorDraftPersistenceTest {
             val response = PendingResponse(gateway.memo).also { pending.add(it) }
             gateway.pending = response
             val existing = compose.runOnIdle { vm.viewModelScope.coroutineContext[Job]!!.children.toSet() }
-            compose.onNodeWithTag("memo:${gateway.memo.name}").performTouchInput { longClick(Offset(centerX, 12f)) }
+            val feed = compose.onNodeWithTag("feedList")
+            val memo = compose.onNodeWithTag("memo:${gateway.memo.name}")
+            val feedBounds = feed.fetchSemanticsNode().boundsInRoot
+            val memoBounds = memo.fetchSemanticsNode().boundsInRoot
+            memo.performTouchInput { longClick(Offset(centerX, 12f)) }
             compose.waitUntil(10_000) { response.started.isCompleted }
             val requests = compose.runOnIdle { vm.viewModelScope.coroutineContext[Job]!!.children.filter { it !in existing }.toList() }
             assertTrue(requests.isNotEmpty())
-            compose.runOnIdle { if (navigate) vm.navigate(UiPage.ARCHIVE) else vm.back() }
+            compose.onNodeWithText("正在准备编辑…").assertDoesNotExist()
+            assertEquals(feedBounds, feed.fetchSemanticsNode().boundsInRoot)
+            assertEquals(memoBounds, memo.fetchSemanticsNode().boundsInRoot)
+            compose.runOnIdle {
+                if (navigate) vm.navigate(UiPage.ARCHIVE) else compose.activity.onBackPressedDispatcher.onBackPressed()
+            }
             response.result.complete(response.memo)
             runBlocking { withTimeout(10_000) { requests.forEach { it.join() } } }
             compose.waitForIdle()

@@ -180,7 +180,6 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
                 }
             }
         }
-        if(shared.preparingMemo==memo.name)Text("正在准备编辑…",color=c.secondary,style=MaterialTheme.typography.bodySmall)
         Box(Modifier.fillMaxWidth().testTag("memo:${memo.name}")
             .semantics {stateDescription=if(!overflowing)"全文" else if(expanded)"已展开" else "已折叠"}
             .combinedClickable(role=Role.Button,onClickLabel=if(overflowing)if(expanded)"收起正文" else "展开正文" else null,

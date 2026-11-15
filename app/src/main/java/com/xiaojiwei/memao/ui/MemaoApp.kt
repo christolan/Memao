@@ -150,7 +150,6 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                             s.account?.takeIf {it.needsAuthentication}?.let {
                                 StateBanner("访问令牌已失效","缓存和草稿仍保留，更新令牌后可发送。",action={MmButton("更新令牌",{vm.showLogin(it)})})
                             }
-                            if(s.preparingMemo!=null)StateBanner("正在准备编辑…","正在读取正文与附件。",action={MmButton("取消",vm::back)})
                             if(s.page==UiPage.LOGIN) {
                                 LoginPage(s,onConnect,if(s.accountId!=null)({vm.back()})else null,Modifier.weight(1f))
                             } else if(s.page==UiPage.ACCOUNTS) {
