@@ -176,7 +176,7 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
     val noteSpacing = 12.dp
     val footerIconSize = 15.dp
     val noteTextStyle = memoBodyTextStyle()
-    val footerTextStyle = noteTextStyle.copy(fontSize = 14.sp)
+    val footerTextStyle = noteTextStyle.copy(fontSize = 13.sp)
     val footerLineHeight = with(LocalDensity.current) { footerTextStyle.lineHeight.toDp() }
     Column(Modifier.fillMaxWidth().then(if(selected)Modifier.background(c.soft,RoundedCornerShape(8.dp))else Modifier).padding(vertical=noteSpacing)) {
         Box(Modifier.fillMaxWidth().testTag("memo:${memo.name}")

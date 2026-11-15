@@ -326,7 +326,7 @@ class StartupNavigationTest {
                 assertEquals(27.sp, bodyLayout.layoutInput.style.lineHeight)
                 for (layout in listOf(timeLayout, toggleLayout)) {
                     val style = layout.layoutInput.style
-                    assertEquals(14.sp, style.fontSize)
+                    assertEquals(13.sp, style.fontSize)
                     assertEquals(27.sp, style.lineHeight)
                     assertEquals(footerColor, style.color)
                 }
