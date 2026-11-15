@@ -166,7 +166,7 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
     var deleting by remember {mutableStateOf(false)}
     val toggle={if(overflowing)onToggle()}
     val edit={if(!shared.busy)vm.editMemo(memo)}
-    Column(Modifier.fillMaxWidth().then(if(selected)Modifier.background(c.soft,RoundedCornerShape(8.dp))else Modifier).padding(vertical=20.dp)) {
+    Column(Modifier.fillMaxWidth().then(if(selected)Modifier.background(c.soft,RoundedCornerShape(8.dp))else Modifier).padding(top=8.dp,bottom=10.dp)) {
         Row(Modifier.fillMaxWidth().combinedClickable(onClick={},onLongClickLabel="编辑笔记",onLongClick=edit).heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) {
             Text(displayTime(memo.createTime),Modifier.weight(1f),color=c.secondary,style=MaterialTheme.typography.labelSmall)
             if(memo.visibility!="PRIVATE")Text(visibilityLabel(memo.visibility),color=c.secondary,style=MaterialTheme.typography.labelSmall)
@@ -181,18 +181,18 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
             }
         }
         if(shared.preparingMemo==memo.name)Text("正在准备编辑…",color=c.secondary,style=MaterialTheme.typography.bodySmall)
-        Box(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("memo:${memo.name}")
+        Box(Modifier.fillMaxWidth().testTag("memo:${memo.name}")
             .semantics {stateDescription=if(!overflowing)"全文" else if(expanded)"已展开" else "已折叠"}
             .combinedClickable(role=Role.Button,onClickLabel=if(overflowing)if(expanded)"收起正文" else "展开正文" else null,
-                onClick=toggle,onLongClickLabel="编辑笔记",onLongClick=edit).padding(vertical=4.dp)) {
+                onClick=toggle,onLongClickLabel="编辑笔记",onLongClick=edit)) {
             if(memo.content.isNotBlank())FoldableMarkdown(memo.content,expanded,{overflowing=it},toggle,edit,compact=compact)
             else Text(if(memo.attachments.any {it.isImage})"图片记录" else "音频记录",color=c.secondary,style=MaterialTheme.typography.bodySmall)
         }
-        if(overflowing)Text(if(expanded)"收起" else "展开全文",Modifier.testTag("memoToggle:${memo.name}").heightIn(min=48.dp)
-            .combinedClickable(role=Role.Button,onClick=onToggle,onLongClickLabel="编辑笔记",onLongClick=edit).padding(vertical=12.dp),
+        if(overflowing)Text(if(expanded)"收起" else "展开全文",Modifier.fillMaxWidth().testTag("memoToggle:${memo.name}")
+            .combinedClickable(role=Role.Button,onClick=onToggle,onLongClickLabel="编辑笔记",onLongClick=edit).padding(vertical=4.dp),
             color=c.secondary,style=MaterialTheme.typography.labelSmall)
         if(memo.attachments.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             AttachmentList(memo.attachments.map(vm::media),audio,{vm.loadMedia(it)},{vm.loadMedia(it,true)},vm.audio::seekTo,onGallery,compact)
         }
     }

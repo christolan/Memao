@@ -254,11 +254,18 @@ class StartupNavigationTest {
         assertEquals(6, renderedBodyLines(gateway.memo.name))
         compose.onNodeWithText("第八行正文").assertDoesNotExist()
         saveScreenshot("memo-markdown-six-lines.png")
-        compose.onNodeWithTag("memo:${gateway.memo.name}").performTouchInput { click(Offset(centerX, 12f)) }
+        val toggle = compose.onNodeWithTag("memoToggle:${gateway.memo.name}")
+        toggle.assertTextEquals("展开全文").assertTouchHeightIsEqualTo(48.dp)
+        val collapsedBounds = toggle.getUnclippedBoundsInRoot()
+        assertTrue(collapsedBounds.bottom - collapsedBounds.top < 48.dp)
+        toggle.performTouchInput { click() }
         compose.onNodeWithText("第八行正文").assertExists()
         assertTrue(renderedBodyLines(gateway.memo.name) >= 8)
         saveScreenshot("memo-markdown-expanded.png")
-        compose.onNodeWithTag("memo:${gateway.memo.name}").performTouchInput { click(Offset(centerX, 12f)) }
+        toggle.assertTextEquals("收起").assertTouchHeightIsEqualTo(48.dp)
+        val expandedBounds = toggle.getUnclippedBoundsInRoot()
+        assertTrue(expandedBounds.bottom - expandedBounds.top < 48.dp)
+        toggle.performTouchInput { click() }
         assertEquals(6, renderedBodyLines(gateway.memo.name))
         compose.onNodeWithText("第八行正文").assertDoesNotExist()
         assertAtNotesList(vm)
