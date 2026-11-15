@@ -25,9 +25,11 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -135,6 +137,13 @@ private fun memoTextBlocks(root: Node, lines: List<String>, color: Color, compac
     return result
 }
 
+@Composable
+internal fun memoBodyTextStyle(compact: Boolean): TextStyle {
+    val style = if (compact) MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 26.sp)
+        else MaterialTheme.typography.bodyLarge
+    return style.copy(lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None))
+}
+
 /** Six rendered lines across all Markdown blocks, including wraps caused by width or font scale. */
 @Composable
 fun FoldableMarkdown(
@@ -153,7 +162,7 @@ fun FoldableMarkdown(
     val haptics=LocalHapticFeedback.current
     val latestClick by rememberUpdatedState(onClick)
     val latestLongClick by rememberUpdatedState(onLongClick)
-    val body=if(compact)MaterialTheme.typography.bodyMedium.copy(fontSize=14.sp,lineHeight=26.sp)else MaterialTheme.typography.bodyLarge
+    val body=memoBodyTextStyle(compact)
     val heading=body.copy(fontSize=(if(compact)18 else 24).sp,lineHeight=(if(compact)28 else 34).sp,fontWeight=FontWeight.Medium)
     val blocks=remember(content,c.ink,compact) {memoTextBlocks(markdownParser.parse(content),content.lines(),c.ink,compact)}
     val iconSize=with(density) {body.fontSize.toDp()}.coerceAtLeast(MmIconSize.Toolbar)

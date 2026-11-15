@@ -97,6 +97,8 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
     val shared=vm.state
     val c=LocalMemaoColors.current
     val notes=page.page==UiPage.NOTES
+    val topPadding=if(notes)0.dp else 16.dp
+    val horizontalPadding=if(compact)20.dp else 24.dp
     val title=page.page.title+if(notes){if(s.untagged)" 无标签" else s.tag?.let {" #$it"}.orEmpty()}else ""
     key(page.accountId,page.scrollKey) {
         TrackPageScroll(page)
@@ -108,12 +110,12 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().pullToRefresh(
                 state=refreshState,isRefreshing=s.refreshing,enabled=!s.loading,onRefresh=page::pullRefresh,
             )) {
-                if(!s.cacheReady)Column(Modifier.fillMaxSize().padding(horizontal=24.dp,vertical=16.dp)) {
+                if(!s.cacheReady)Column(Modifier.fillMaxSize().padding(start=horizontalPadding,end=horizontalPadding,top=topPadding,bottom=16.dp)) {
                     repeat(3) {SkeletonRow()}
                 }
                 else LazyColumn(Modifier.fillMaxSize().testTag("feedList").semantics {
                     if(!s.loading)customActions=listOf(CustomAccessibilityAction(if(notes)"刷新笔记" else "刷新归档") {page.pullRefresh();true})
-                },state=page.listState,contentPadding=PaddingValues(horizontal=if(compact)20.dp else 24.dp,vertical=16.dp)) {
+                },state=page.listState,contentPadding=PaddingValues(start=horizontalPadding,end=horizontalPadding,top=topPadding,bottom=16.dp)) {
                     if(!notes)item(key="header") {
                         Column {
                             Text("已归档的记录",color=c.secondary,style=MaterialTheme.typography.labelSmall)
@@ -166,12 +168,12 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
     var deleting by remember {mutableStateOf(false)}
     val toggle={if(overflowing)onToggle()}
     val edit={if(!shared.busy)vm.editMemo(memo)}
-    Column(Modifier.fillMaxWidth().then(if(selected)Modifier.background(c.soft,RoundedCornerShape(8.dp))else Modifier).padding(top=8.dp,bottom=10.dp)) {
-        Row(Modifier.fillMaxWidth().combinedClickable(onClick={},onLongClickLabel="编辑笔记",onLongClick=edit).heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) {
+    Column(Modifier.fillMaxWidth().then(if(selected)Modifier.background(c.soft,RoundedCornerShape(8.dp))else Modifier).padding(vertical=8.dp)) {
+        Row(Modifier.fillMaxWidth().combinedClickable(onClick={},onLongClickLabel="编辑笔记",onLongClick=edit),verticalAlignment=Alignment.CenterVertically) {
             Text(displayTime(memo.createTime),Modifier.weight(1f),color=c.secondary,style=MaterialTheme.typography.labelSmall)
             if(memo.visibility!="PRIVATE")Text(visibilityLabel(memo.visibility),color=c.secondary,style=MaterialTheme.typography.labelSmall)
             Box {
-                MmIconButton(MmIcon.MORE,"笔记操作",modifier=Modifier.testTag("memoActions:${memo.name}")){menuOpen=true}
+                MmIconButton(MmIcon.MORE,"笔记操作",modifier=Modifier.height(24.dp).testTag("memoActions:${memo.name}")){menuOpen=true}
                 DropdownMenu(expanded=menuOpen,onDismissRequest={menuOpen=false},containerColor=c.background) {
                     DropdownMenuItem(text={Text("编辑",color=c.ink)},leadingIcon={LineIcon(MmIcon.EDIT)},enabled=!shared.busy,onClick={menuOpen=false;edit()})
                     DropdownMenuItem(text={Text("复制正文",color=c.ink)},leadingIcon={LineIcon(MmIcon.COPY)},onClick={menuOpen=false;clipboard.setText(AnnotatedString(memo.content));vm.notify("已复制正文")})
@@ -188,8 +190,8 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
             else Text(if(memo.attachments.any {it.isImage})"图片记录" else "音频记录",color=c.secondary,style=MaterialTheme.typography.bodySmall)
         }
         if(overflowing)Text(if(expanded)"收起" else "展开全文",Modifier.fillMaxWidth().testTag("memoToggle:${memo.name}")
-            .combinedClickable(role=Role.Button,onClick=onToggle,onLongClickLabel="编辑笔记",onLongClick=edit).padding(vertical=4.dp),
-            color=c.secondary,style=MaterialTheme.typography.labelSmall)
+            .combinedClickable(role=Role.Button,onClick=onToggle,onLongClickLabel="编辑笔记",onLongClick=edit),
+            color=c.secondary,style=memoBodyTextStyle(compact))
         if(memo.attachments.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             AttachmentList(memo.attachments.map(vm::media),audio,{vm.loadMedia(it)},{vm.loadMedia(it,true)},vm.audio::seekTo,onGallery,compact)

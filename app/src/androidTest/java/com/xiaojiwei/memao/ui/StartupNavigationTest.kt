@@ -19,6 +19,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -272,6 +273,61 @@ class StartupNavigationTest {
         assertEquals(0, gateway.getCalls)
     }
 
+    @Test fun memoToggleFollowsBodyBaselineAndRowHasEqualDividerInsets() {
+        val content = (1..8).joinToString("\n") { "笔记正文第 $it 行" }
+        val memo = Memo("memos/spacing", content, "users/1", createTime = "2026-11-15T08:00:00Z")
+        val (repo, account) = fixture(StartupGateway(memo))
+        mount()
+        val vm = replaceViewModel(repo)
+        awaitReady(vm, account.id)
+
+        val feed = compose.onNodeWithTag("feedList")
+        val actions = compose.onNodeWithTag("memoActions:${memo.name}")
+        val topBar = compose.onNode(hasTestTag("pageTopBar") and hasAnyAncestor(hasTestTag("feedPage")))
+        val body = compose.onNodeWithTag("memoLineText", useUnmergedTree = true)
+        val toggle = compose.onNodeWithTag("memoToggle:${memo.name}")
+        fun textLayout(node: SemanticsNodeInteraction): TextLayoutResult {
+            val layouts = mutableListOf<TextLayoutResult>()
+            node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            return layouts.single()
+        }
+
+        for (compact in listOf(false, true)) {
+            if (compact) {
+                compose.runOnIdle { width.value = 1000.dp }
+                compose.onNodeWithTag("memo:${memo.name}").performTouchInput { longClick(Offset(centerX, 12f)) }
+                compose.waitUntil(10_000) { vm.state.editor?.memoName == memo.name }
+                compose.onNodeWithTag("editorBody").assertIsDisplayed()
+            }
+            actions.assertTouchHeightIsEqualTo(48.dp)
+            for (expanded in listOf(false, true)) {
+                toggle.assertTextEquals(if (expanded) "收起" else "展开全文").assertTouchHeightIsEqualTo(48.dp)
+                val bodyLayout = textLayout(body)
+                val toggleLayout = textLayout(toggle)
+                val last = bodyLayout.lineCount - 1
+                val lastBaseline = bodyLayout.getLineBaseline(last)
+                val bodyPitch = lastBaseline - bodyLayout.getLineBaseline(last - 1)
+                val expectedPitch = with(compose.density) { (if (compact) 26.sp else 30.sp).toPx() }
+                assertEquals(expectedPitch, bodyPitch, 1f)
+                val bodyBaseline = body.fetchSemanticsNode().positionInRoot.y + lastBaseline
+                val toggleBaseline = toggle.fetchSemanticsNode().positionInRoot.y + toggleLayout.firstBaseline
+                assertEquals(bodyPitch, toggleBaseline - bodyBaseline, 1f)
+                assertEquals(bodyPitch, toggleLayout.getLineBottom(0) - toggleLayout.getLineTop(0), 1f)
+
+                val item = compose.runOnIdle { vm.notes.listState.layoutInfo.visibleItemsInfo.first() }
+                assertEquals(memo.name, item.key)
+                assertEquals(0, item.offset)
+                val topGap = actions.getUnclippedBoundsInRoot().top - topBar.getUnclippedBoundsInRoot().bottom
+                val dividerTop = feed.getUnclippedBoundsInRoot().top + with(compose.density) { item.size.toDp() } - 1.dp
+                val bottomGap = dividerTop - toggle.getUnclippedBoundsInRoot().bottom
+                assertEquals(8f, topGap.value, 1f)
+                assertEquals(topGap.value, bottomGap.value, 1f)
+                if (!compact) saveScreenshot(if (expanded) "memo-rhythm-expanded.png" else "memo-rhythm-folded.png")
+                toggle.performTouchInput { click() }
+            }
+        }
+    }
+
     @Test fun rowMenuCopiesFullSourceAndDeletionRequiresConfirmation() {
         val content = (1..9).joinToString("\n") { "复制完整正文第 $it 行" }
         val gateway = StartupGateway(Memo("memos/actions", content, "users/1"))
@@ -279,7 +335,7 @@ class StartupNavigationTest {
         mount()
         val vm = replaceViewModel(repo)
         awaitReady(vm, account.id)
-        compose.onNodeWithTag("memoActions:${gateway.memo.name}").performClick()
+        compose.onNodeWithTag("memoActions:${gateway.memo.name}").performTouchInput { click() }
         // DropdownMenu is a separate popup window, outside the Compose fixture layer.
         compose.waitForIdle()
         val menuScreenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
