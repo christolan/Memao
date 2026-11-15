@@ -91,6 +91,9 @@ class StartupNavigationTest {
             awaitReady(vm, account.id, draft.id)
             assertAtNotesList(vm)
             compose.onNodeWithTag("memo:${gateway.memo.name}").assertIsDisplayed()
+            compose.runOnIdle {
+                assertEquals(gateway.memo.name, vm.notes.listState.layoutInfo.visibleItemsInfo.first().key)
+            }
             compose.onNodeWithTag("editorBody").assertDoesNotExist()
             compose.onNodeWithTag("editMemo").assertDoesNotExist()
             compose.onNodeWithText("选择一条记录").assertDoesNotExist()
@@ -134,7 +137,7 @@ class StartupNavigationTest {
             assertFalse(vm.state.paneOpen)
             assertEquals(readingPosition, vm.notes.listState.firstVisibleItemIndex to vm.notes.listState.firstVisibleItemScrollOffset)
         }
-        compose.onNodeWithTag("feedList").performScrollToIndex(1)
+        compose.onNodeWithTag("feedList").performScrollToIndex(0)
         compose.onNodeWithTag("memo:${gateway.memo.name}")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "已展开"))
             .performTouchInput { longClick(Offset(centerX, 12f)) }

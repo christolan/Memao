@@ -33,7 +33,6 @@ import com.xiaojiwei.memao.model.Draft
 import com.xiaojiwei.memao.model.Memo
 import com.xiaojiwei.memao.ui.theme.LocalMemaoColors
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -115,9 +114,9 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
                 else LazyColumn(Modifier.fillMaxSize().testTag("feedList").semantics {
                     if(!s.loading)customActions=listOf(CustomAccessibilityAction(if(notes)"刷新笔记" else "刷新归档") {page.pullRefresh();true})
                 },state=page.listState,contentPadding=PaddingValues(horizontal=if(compact)20.dp else 24.dp,vertical=16.dp)) {
-                    item(key="header") {
+                    if(!notes)item(key="header") {
                         Column {
-                            Text(if(notes)LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日")) else "已归档的记录",color=c.secondary,style=MaterialTheme.typography.labelSmall)
+                            Text("已归档的记录",color=c.secondary,style=MaterialTheme.typography.labelSmall)
                             Spacer(Modifier.height(16.dp))
                             MmRule()
                         }
