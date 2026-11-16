@@ -9,6 +9,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -33,6 +38,7 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaojiwei.memao.ui.theme.LocalMemaoColors
@@ -81,7 +87,7 @@ private data class MemoTextBlock(
 )
 
 /** Keep block decorations while exposing each text layout to one shared visual-line budget. */
-private fun memoTextBlocks(root: Node, lines: List<String>, color: Color, compact: Boolean): List<MemoTextBlock> {
+private fun memoTextBlocks(root: Node, lines: List<String>, color: Color, compact: Boolean, tags: List<String>): List<MemoTextBlock> {
     val result=mutableListOf<MemoTextBlock>()
     fun visit(node: Node, indents: List<MemoIndent>, gap: Int) {
         fun add(text: AnnotatedString, heading: Boolean=false, secondary: Boolean=false, rule: Boolean=false) {
@@ -102,9 +108,9 @@ private fun memoTextBlocks(root: Node, lines: List<String>, color: Color, compac
             is Heading -> {
                 val raw=source(node,lines)
                 if(raw.lines().drop(1).any {it.trim().matches(Regex("=+|-+"))})add(AnnotatedString(raw))
-                else add(inlineText(node,color,nativeLinks=false),heading=true)
+                else add(inlineText(node,color,nativeLinks=false,tags=tags),heading=true)
             }
-            is Paragraph -> add(inlineText(node,color,nativeLinks=false))
+            is Paragraph -> add(inlineText(node,color,nativeLinks=false,tags=tags))
             is BlockQuote -> children(node,indents+MemoIndent(quote=true),8)
             is BulletList, is OrderedList -> {
                 var item=node.firstChild
@@ -153,6 +159,8 @@ fun FoldableMarkdown(
     onLongClick: ()->Unit,
     modifier: Modifier=Modifier,
     compact: Boolean=false,
+    tags: List<String> = emptyList(),
+    onTagClick: (String)->Unit = {},
 ) {
     val c=LocalMemaoColors.current
     val density=LocalDensity.current
@@ -161,9 +169,10 @@ fun FoldableMarkdown(
     val haptics=LocalHapticFeedback.current
     val latestClick by rememberUpdatedState(onClick)
     val latestLongClick by rememberUpdatedState(onLongClick)
+    val latestTagClick by rememberUpdatedState(onTagClick)
     val body=memoBodyTextStyle()
     val heading=body.copy(fontSize=17.sp,fontWeight=FontWeight.Medium)
-    val blocks=remember(content,c.ink,compact) {memoTextBlocks(markdownParser.parse(content),content.lines(),c.ink,compact)}
+    val blocks=remember(content,c.ink,compact,tags) {memoTextBlocks(markdownParser.parse(content),content.lines(),c.ink,compact,tags)}
     val iconSize=with(density) {body.fontSize.toDp()}.coerceAtLeast(MmIconSize.Toolbar)
     val markerLineHeight=with(density) {body.lineHeight.toDp()}.coerceAtLeast(iconSize)
     fun indentWidth(indent:MemoIndent)=when {
@@ -202,23 +211,48 @@ fun FoldableMarkdown(
                         else {
                             var textLayout by remember(block.text) {mutableStateOf<TextLayoutResult?>(null)}
                             val links=block.text.getStringAnnotations("url",0,block.text.length)
-                            Text(block.text,Modifier.weight(1f).testTag("memoLineText").pointerInput(block.text,links) {
+                            val tagLinks=block.text.getStringAnnotations("tag",0,block.text.length)
+                            Text(block.text,Modifier.weight(1f).testTag("memoLineText").drawBehind {
+                                val layout=textLayout ?: return@drawBehind
+                                // Paint inside the existing line box: decoration never changes line metrics.
+                                tagLinks.forEach {tag->
+                                    for(line in 0 until layout.lineCount) {
+                                        val start=maxOf(tag.start,layout.getLineStart(line))
+                                        val end=minOf(tag.end,layout.getLineEnd(line,visibleEnd=true))
+                                        if(start<end) {
+                                            val boxes=(start until end).map {layout.getBoundingBox(it)}
+                                            val left=boxes.minOf {it.left}.coerceAtLeast(0f)
+                                            val right=boxes.maxOf {it.right}.coerceAtMost(size.width)
+                                            val top=layout.getLineTop(line)+2.dp.toPx()
+                                            val height=(layout.getLineBottom(line)-layout.getLineTop(line)-4.dp.toPx()).coerceAtLeast(1f)
+                                            if(right>left)drawRoundRect(c.secondary.copy(alpha=0.6f),Offset(left+0.5.dp.toPx(),top),
+                                                Size((right-left-1.dp.toPx()).coerceAtLeast(1f),height),CornerRadius(height/2),style=Stroke(1.dp.toPx()))
+                                        }
+                                    }
+                                }
+                            }.pointerInput(block.text,links,tagLinks) {
                                 detectTapGestures(
                                     onTap={point->
                                         val layout=textLayout
                                         val offset=layout?.getOffsetForPosition(point)
-                                        val link=offset?.takeIf {at->
+                                        val hit=offset?.takeIf {at->
                                             layout!=null&&at<block.text.length&&
                                                 at<layout.getLineEnd(layout.getLineForVerticalPosition(point.y),visibleEnd=true)&&
                                                 layout.getBoundingBox(at).contains(point)
                                         }
-                                            ?.let {at->links.firstOrNull {at>=it.start&&at<it.end}}
-                                        if(link!=null)runCatching {uriHandler.openUri(link.item)} else latestClick()
+                                        val tag=hit?.let {at->tagLinks.firstOrNull {at>=it.start&&at<it.end}}
+                                        val link=hit?.let {at->links.firstOrNull {at>=it.start&&at<it.end}}
+                                        when {
+                                            tag!=null -> latestTagClick(tag.item)
+                                            link!=null -> runCatching {uriHandler.openUri(link.item)}
+                                            else -> latestClick()
+                                        }
                                     },
                                     onLongPress={haptics.performHapticFeedback(HapticFeedbackType.LongPress);latestLongClick()},
                                 )
                             }.semantics {
-                                if(links.isNotEmpty())customActions=links.map {link->CustomAccessibilityAction("打开链接："+block.text.text.substring(link.start,link.end)) {runCatching {uriHandler.openUri(link.item)}.isSuccess}}
+                                customActions=links.map {link->CustomAccessibilityAction("打开链接："+block.text.text.substring(link.start,link.end)) {runCatching {uriHandler.openUri(link.item)}.isSuccess}}+
+                                    tagLinks.map {tag->CustomAccessibilityAction("筛选标签：#"+tag.item) {latestTagClick(tag.item);true}}
                             },color=if(block.secondary)c.secondary else c.ink,style=if(block.heading)heading else body,
                                 maxLines=visibleLines.coerceAtLeast(1),overflow=TextOverflow.Ellipsis,onTextLayout={textLayout=it})
                         }
@@ -302,17 +336,33 @@ private fun Children(node: Node, lines: List<String>, compact: Boolean) {
     while(child!=null) { MarkdownBlock(child,lines,compact);child=child.next }
 }
 
-private fun inlineText(node: Node, color: Color, nativeLinks: Boolean = true): AnnotatedString {
+private fun inlineText(node: Node, color: Color, nativeLinks: Boolean = true, tags: List<String> = emptyList()): AnnotatedString {
     val builder=AnnotatedString.Builder()
-    fun visitChildren(parent: Node) {
+    val knownTags=tags.filter {it.isNotBlank()}.distinct().sortedByDescending {it.length}
+    // Only plain text may contain tags. Link labels, code and HTML stay literal.
+    fun appendText(value: String, allowTags: Boolean) {
+        if(!allowTags || knownTags.isEmpty()) {builder.append(value);return}
+        val pattern=Regex("(?<![\\p{L}\\p{N}_/#])#("+knownTags.joinToString("|") {Regex.escape(it)}+")(?=$|[^\\p{L}\\p{N}_/-])")
+        var cursor=0
+        pattern.findAll(value).forEach {match->
+            builder.append(value.substring(cursor,match.range.first))
+            builder.pushStringAnnotation("tag",match.groupValues[1])
+            builder.pushStyle(SpanStyle(fontSize=0.9.em))
+            builder.append("\u00a0"+match.value+"\u00a0")
+            builder.pop();builder.pop()
+            cursor=match.range.last+1
+        }
+        builder.append(value.substring(cursor))
+    }
+    fun visitChildren(parent: Node, allowTags: Boolean = true) {
         var child=parent.firstChild
         while(child!=null) {
             val n=child
             when(n) {
-                is org.commonmark.node.Text -> builder.append(n.literal)
+                is org.commonmark.node.Text -> appendText(n.literal,allowTags)
                 is SoftLineBreak, is HardLineBreak -> builder.append("\n")
-                is StrongEmphasis -> {builder.pushStyle(SpanStyle(fontWeight=FontWeight.Bold));visitChildren(n);builder.pop()}
-                is Emphasis -> {builder.pushStyle(SpanStyle(fontStyle=FontStyle.Italic));visitChildren(n);builder.pop()}
+                is StrongEmphasis -> {builder.pushStyle(SpanStyle(fontWeight=FontWeight.Bold));visitChildren(n,allowTags);builder.pop()}
+                is Emphasis -> {builder.pushStyle(SpanStyle(fontStyle=FontStyle.Italic));visitChildren(n,allowTags);builder.pop()}
                 is Link -> {
                     val scheme=runCatching { URI(n.destination).scheme?.lowercase() }.getOrNull()
                     if(scheme in setOf("http","https","mailto")) {
@@ -321,15 +371,15 @@ private fun inlineText(node: Node, color: Color, nativeLinks: Boolean = true): A
                             builder.pushStringAnnotation("url",n.destination)
                             builder.pushStyle(SpanStyle(color=color,textDecoration=TextDecoration.Underline))
                         }
-                        visitChildren(n);builder.pop()
+                        visitChildren(n,false);builder.pop()
                         if(!nativeLinks)builder.pop()
-                    } else visitChildren(n)
+                    } else visitChildren(n,false)
                 }
-                is Image -> {builder.append("[图片：");visitChildren(n);builder.append("]")}
+                is Image -> {builder.append("[图片：");visitChildren(n,false);builder.append("]")}
                 is Code -> builder.append("`"+n.literal+"`")
                 is HtmlInline -> builder.append(n.literal)
                 is TaskListItemMarker -> Unit
-                else -> visitChildren(n)
+                else -> visitChildren(n,allowTags)
             }
             child=n.next
         }

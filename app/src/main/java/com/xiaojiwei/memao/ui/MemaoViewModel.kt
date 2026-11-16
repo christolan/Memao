@@ -218,6 +218,11 @@ class MemaoViewModel(
         shellState=shellState.copy(error=null)
         search.submit(value)
     }
+    fun filterByBodyTag(value:String) {
+        val selected=notes.state.tag==value&&!notes.state.untagged
+        setTag(if(selected)null else value)
+        navigate(UiPage.NOTES)
+    }
     fun setTag(value:String?) {
         cancelMemoRequest()
         shellState=shellState.copy(paneOpen=false,error=null)

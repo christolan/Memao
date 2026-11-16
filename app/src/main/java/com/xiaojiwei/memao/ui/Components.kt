@@ -135,7 +135,7 @@ private fun MemaoAppIcon(size: Dp) {
 val LocalOpenNavigationDrawer=compositionLocalOf<(() -> Unit)?> {null}
 
 @Composable
-fun MmTopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}) {
+fun MmTopBar(title: String, onBack: (() -> Unit)? = null, filterTag: String? = null, onClearTag: () -> Unit = {}, actions: @Composable RowScope.() -> Unit = {}) {
     val c=LocalMemaoColors.current
     val openDrawer=LocalOpenNavigationDrawer.current
     Column(Modifier.testTag("pageTopBar")) {
@@ -149,7 +149,21 @@ fun MmTopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable R
             }
             if(onBack!=null)MmIconButton(MmIcon.BACK,"返回",onClick=onBack)
             else Spacer(Modifier.width(if(openDrawer==null)12.dp else 8.dp))
-            Text(title,Modifier.weight(1f).testTag("pageTitle"),color=c.ink,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+            Row(Modifier.weight(1f),verticalAlignment=Alignment.CenterVertically) {
+                Text(title,(if(filterTag==null)Modifier.weight(1f)else Modifier).testTag("pageTitle"),color=c.ink,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+                if(filterTag!=null) {
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.weight(1f,fill=false).heightIn(min=48.dp).testTag("clearTagFilter")
+                        .clickable(role=Role.Button,onClickLabel="清除标签筛选，展示全部笔记",onClick=onClearTag)
+                        .semantics {contentDescription="标签 #$filterTag，清除筛选"},contentAlignment=Alignment.CenterStart) {
+                        Row(Modifier.border(1.dp,c.divider,RoundedCornerShape(50)).padding(horizontal=10.dp,vertical=3.dp),verticalAlignment=Alignment.CenterVertically) {
+                            Text("#$filterTag",Modifier.weight(1f,fill=false),color=c.ink,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
+                            Spacer(Modifier.width(6.dp))
+                            LineIcon(MmIcon.CLOSE,Modifier.size(14.dp),c.secondary)
+                        }
+                    }
+                }
+            }
             actions()
         }
         MmRule()

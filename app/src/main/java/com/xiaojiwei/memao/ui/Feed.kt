@@ -103,12 +103,12 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
     val notes=page.page==UiPage.NOTES
     val topPadding=if(notes)0.dp else 16.dp
     val horizontalPadding=if(notes||compact)20.dp else 24.dp
-    val title=page.page.title+if(notes){if(s.untagged)" 无标签" else s.tag?.let {" #$it"}.orEmpty()}else ""
+    val title=page.page.title+if(notes){if(s.untagged)" 无标签" else ""}else ""
     key(page.accountId,page.scrollKey) {
         TrackPageScroll(page)
         val refreshState=rememberPullToRefreshState()
         Column(Modifier.fillMaxSize().testTag("feedPage")) {
-            MmTopBar(title) {
+            MmTopBar(title,filterTag=if(notes)s.tag else null,onClearTag={vm.setTag(null)}) {
                 if(notes)MmIconButton(MmIcon.SEARCH,"搜索",modifier=Modifier.testTag("openSearch"),onClick=vm::openSearch)
             }
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().pullToRefresh(
@@ -185,7 +185,7 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
             .semantics {stateDescription=if(!overflowing)"全文" else if(expanded)"已展开" else "已折叠"}
             .combinedClickable(role=Role.Button,onClickLabel=if(overflowing)if(expanded)"收起正文" else "展开正文" else null,
                 onClick=toggle,onLongClickLabel="编辑笔记",onLongClick=edit)) {
-            if(memo.content.isNotBlank())FoldableMarkdown(memo.content,expanded,{overflowing=it},toggle,edit,compact=compact)
+            if(memo.content.isNotBlank())FoldableMarkdown(memo.content,expanded,{overflowing=it},toggle,edit,compact=compact,tags=memo.tags,onTagClick=vm::filterByBodyTag)
             else Text(if(memo.attachments.any {it.isImage})"图片记录" else "音频记录",color=c.secondary,style=noteTextStyle)
         }
         if (overflowing) {
