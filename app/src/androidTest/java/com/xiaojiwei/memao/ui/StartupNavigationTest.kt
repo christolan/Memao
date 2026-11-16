@@ -1,7 +1,6 @@
 package com.xiaojiwei.memao.ui
 
 import android.content.Context
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
@@ -258,7 +257,7 @@ class StartupNavigationTest {
         compose.onNodeWithText("第八行正文").assertDoesNotExist()
         saveScreenshot("memo-markdown-six-lines.png")
         val toggle = compose.onNodeWithTag("memoToggle:${gateway.memo.name}")
-        toggle.assertTextEquals("展开全文").assertTouchHeightIsEqualTo(48.dp)
+        toggle.assertTextEquals("全文").assertTouchHeightIsEqualTo(48.dp)
         val collapsedBounds = toggle.getUnclippedBoundsInRoot()
         assertTrue(collapsedBounds.bottom - collapsedBounds.top < 48.dp)
         toggle.performTouchInput { click() }
@@ -275,9 +274,10 @@ class StartupNavigationTest {
         assertEquals(0, gateway.getCalls)
     }
 
-    @Test fun memoFooterUsesSharedTypographyAndEqualSpacingInBothLayouts() {
+    @Test fun readingActionSitsBetweenBodyAndImageInBothLayouts() {
         val content = (1..8).joinToString("\n") { "笔记正文第 $it 行" }
-        val memo = Memo("memos/spacing", content, "users/1", createTime = "2026-11-15T08:00:00Z")
+        val image = Attachment("attachments/portrait", "portrait.png", "image/png", width = 300, height = 400)
+        val memo = Memo("memos/spacing", content, "users/1", createTime = "2026-11-15T08:00:00Z", attachments = listOf(image))
         val (repo, account) = fixture(StartupGateway(memo))
         mount()
         val vm = replaceViewModel(repo)
@@ -289,10 +289,9 @@ class StartupNavigationTest {
         val body = compose.onNodeWithTag("memoLineText", useUnmergedTree = true)
         val footer = compose.onNodeWithTag("memoFooter:${memo.name}", useUnmergedTree = true)
         val time = compose.onNodeWithTag("memoTime:${memo.name}", useUnmergedTree = true)
-        val toggleTag = "memoToggle:${memo.name}"
-        val toggle = compose.onNodeWithTag(toggleTag)
-        val nightMode = compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-        val footerColor = if (nightMode == Configuration.UI_MODE_NIGHT_YES) Color(0xFFB3B8BE) else Color(0xFF5D6268)
+        val toggle = compose.onNodeWithTag("memoToggle:${memo.name}")
+        compose.waitUntil(10_000) { vm.state.files[image.name] != null }
+        val picture = compose.onNode(hasContentDescription(image.filename) and hasAnyAncestor(hasTestTag("feedList")))
         fun textLayout(node: SemanticsNodeInteraction): TextLayoutResult {
             val layouts = mutableListOf<TextLayoutResult>()
             node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
@@ -304,6 +303,11 @@ class StartupNavigationTest {
         }
 
         for (compact in listOf(false, true)) {
+            val theme = if (compact) ThemeMode.DARK else ThemeMode.LIGHT
+            compose.runOnIdle { vm.setTheme(theme) }
+            compose.waitUntil(10_000) { vm.state.settings.theme == theme }
+            val footerColor = if (compact) Color(0xFFB3B8BE) else Color(0xFF5D6268)
+            val actionColor = if (compact) Color(0xFFA0B9E0) else Color(0xFF536789)
             if (compact) {
                 compose.runOnIdle { width.value = 1000.dp }
                 compose.onNodeWithTag("memo:${memo.name}").performTouchInput { longClick(Offset(centerX, 12f)) }
@@ -312,24 +316,28 @@ class StartupNavigationTest {
             }
             actions.assertTouchHeightIsEqualTo(48.dp)
             for (expanded in listOf(false, true)) {
-                val label = if (expanded) "收起" else "展开全文"
+                val label = if (expanded) "收起" else "全文"
                 toggle.assertTextEquals(label).assertTouchHeightIsEqualTo(48.dp)
-                if (!compact) saveScreenshot(if (expanded) "memo-footer-expanded.png" else "memo-footer-folded.png")
-                val toggleText = compose.onNode(
-                    hasText(label) and hasAnyAncestor(hasTestTag(toggleTag)), useUnmergedTree = true,
-                )
+                if (!compact || expanded) {
+                    val state = if (expanded) "expanded" else "folded"
+                    val mode = if (compact) "dark" else "light"
+                    saveScreenshot("memo-image-$state-$mode.png")
+                }
                 time.assertTextEquals(displayTime(memo.createTime))
                 val bodyLayout = textLayout(body)
                 val timeLayout = textLayout(time)
-                val toggleLayout = textLayout(toggleText)
+                val toggleLayout = textLayout(toggle)
                 assertEquals(15.sp, bodyLayout.layoutInput.style.fontSize)
                 assertEquals(27.sp, bodyLayout.layoutInput.style.lineHeight)
-                for (layout in listOf(timeLayout, toggleLayout)) {
-                    val style = layout.layoutInput.style
-                    assertEquals(13.sp, style.fontSize)
-                    assertEquals(27.sp, style.lineHeight)
-                    assertEquals(footerColor, style.color)
-                }
+                val timeStyle = timeLayout.layoutInput.style
+                assertEquals(13.sp, timeStyle.fontSize)
+                assertEquals(27.sp, timeStyle.lineHeight)
+                assertEquals(footerColor, timeStyle.color)
+                val toggleStyle = toggleLayout.layoutInput.style
+                assertEquals(15.sp, toggleStyle.fontSize)
+                assertEquals(27.sp, toggleStyle.lineHeight)
+                assertEquals(actionColor, toggleStyle.color)
+                assertNotEquals(bodyLayout.layoutInput.style.color, toggleStyle.color)
                 assertEquals(1, timeLayout.lineCount)
                 assertEquals(1, toggleLayout.lineCount)
                 assertEquals(label.length, toggleLayout.getLineEnd(0, visibleEnd = true))
@@ -341,29 +349,55 @@ class StartupNavigationTest {
                 assertEquals(if (expanded) 8 else 6, bodyLayout.lineCount)
                 val footerCenter = centerY(footer)
                 assertEquals(footerCenter, centerY(time), 1f)
-                assertEquals(footerCenter, centerY(toggleText), 1f)
                 assertEquals(footerCenter, centerY(actions), 1f)
                 val timeBounds = time.getUnclippedBoundsInRoot()
                 val toggleBounds = toggle.getUnclippedBoundsInRoot()
                 val actionBounds = actions.getUnclippedBoundsInRoot()
-                assertTrue(timeBounds.right <= toggleBounds.left)
-                assertTrue(toggleBounds.right <= actionBounds.left)
+                assertTrue(timeBounds.right <= actionBounds.left)
 
                 val item = compose.runOnIdle { vm.notes.listState.layoutInfo.visibleItemsInfo.first() }
                 assertEquals(memo.name, item.key)
                 assertEquals(0, item.offset)
                 val bodyBounds = body.getUnclippedBoundsInRoot()
+                val imageBounds = picture.getUnclippedBoundsInRoot()
                 val footerBounds = footer.getUnclippedBoundsInRoot()
                 val topGap = bodyBounds.top - topBar.getUnclippedBoundsInRoot().bottom
                 val dividerTop = feed.getUnclippedBoundsInRoot().top + with(compose.density) { (item.size - 1.dp.roundToPx()).toDp() }
-                val footerTopGap = footerBounds.top - bodyBounds.bottom
+                val footerTopGap = footerBounds.top - imageBounds.bottom
                 val footerBottomGap = dividerTop - footerBounds.bottom
                 assertEquals(12f, topGap.value, 1f)
                 assertEquals(12f, footerTopGap.value, 1f)
                 assertEquals(12f, footerBottomGap.value, 1f)
+                assertEquals(bodyBounds.left.value, toggleBounds.left.value, 1f)
+                assertEquals(toggleBounds.left.value, imageBounds.left.value, 1f)
+                assertEquals(bodyBounds.bottom.value, toggleBounds.top.value, 1f)
+                assertEquals(8f, (imageBounds.top - toggleBounds.bottom).value, 1f)
                 toggle.performTouchInput { click() }
             }
         }
+    }
+
+    @Test fun searchOnlyNoteLoadsItsImagesAndOpensTheSelectedOne() {
+        val images = (1..4).map { index ->
+            Attachment("attachments/search-$index", "search-$index.png", "image/png", width = 300, height = 400)
+        }
+        val searchMemo = Memo("memos/search-only", (1..8).joinToString("\n") { "搜索结果第 $it 行" }, "users/1", attachments = images)
+        val (repo, account) = fixture(StartupGateway(searchMemo = searchMemo))
+        mount()
+        val vm = replaceViewModel(repo)
+        awaitReady(vm, account.id)
+        compose.onNodeWithTag("openSearch").performClick()
+        compose.onNodeWithTag("search").performTextReplacement("搜索结果")
+        compose.onNodeWithTag("search").performImeAction()
+        compose.waitUntil(10_000) { images.all { it.name in vm.state.files } }
+        compose.runOnIdle { assertTrue(vm.notes.state.memos.none { it.name == searchMemo.name }) }
+        compose.onNodeWithTag("memoToggle:${searchMemo.name}").assertTextEquals("全文")
+        saveScreenshot("memo-grid-search.png")
+        compose.onNodeWithContentDescription(images.last().filename).performScrollTo().performClick()
+        compose.onNodeWithText("4 / 4").assertIsDisplayed()
+        compose.onNode(hasContentDescription(images.last().filename) and !hasClickAction())
+            .performTouchInput { swipeRight() }
+        compose.onNodeWithText("3 / 4").assertIsDisplayed()
     }
 
     @Test fun rowMenuCopiesFullSourceAndDeletionRequiresConfirmation() {
@@ -479,13 +513,19 @@ class StartupNavigationTest {
         val result = CompletableDeferred<Memo>()
     }
 
-    private class StartupGateway(val memo: Memo = Memo("memos/previous", "上次阅读的记录", "users/1")) : MemosGateway {
+    private class StartupGateway(
+        val memo: Memo = Memo("memos/previous", "上次阅读的记录", "users/1"),
+        private val searchMemo: Memo? = null,
+    ) : MemosGateway {
         @Volatile var pending: PendingResponse? = null
         @Volatile var getCalls = 0
         var publishes = 0
         @Volatile var deletes = 0
         override suspend fun inspect(serverUrl: String, token: String) = ConnectionInfo("users/1", "隔离测试账号", version = "0.31.0")
-        override suspend fun list(account: Account, query: MemoQuery, pageToken: String) = MemoPage(listOf(memo).filter { deletes == 0 && it.archived == query.archived })
+        override suspend fun list(account: Account, query: MemoQuery, pageToken: String): MemoPage {
+            val result = if (query.keyword.isNotEmpty() && searchMemo != null) searchMemo else memo
+            return MemoPage(listOf(result).filter { deletes == 0 && it.archived == query.archived })
+        }
         override suspend fun tags(account: Account) = emptyList<TagCount>()
         override suspend fun get(account: Account, name: String): Memo {
             getCalls++
@@ -497,6 +537,14 @@ class StartupNavigationTest {
         override suspend fun update(account: Account, request: UpdateMemo): Memo { publishes++; error("Must not publish") }
         override suspend fun delete(account: Account, name: String) { deletes++ }
         override suspend fun upload(account: Account, request: UploadFile): Attachment = error("Must not upload")
-        override suspend fun download(account: Account, attachment: Attachment, destination: File) = error("Must not download")
+        override suspend fun download(account: Account, attachment: Attachment, destination: File) {
+            val bitmap = Bitmap.createBitmap(attachment.width, attachment.height, Bitmap.Config.ARGB_8888)
+            try {
+                bitmap.eraseColor(0xffa04f58.toInt() + (attachment.name.hashCode() and 0x003f3f3f))
+                destination.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            } finally {
+                bitmap.recycle()
+            }
+        }
     }
 }

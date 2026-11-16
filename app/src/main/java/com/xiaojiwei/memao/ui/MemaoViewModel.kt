@@ -517,7 +517,7 @@ class MemaoViewModel(
         val jobKey="$id|${item.key}"
         if(item.file!=null){if(play)audio.toggle(item.file);return}
         if(jobKey in mediaJobs)return
-        val original=(notes.state.memos+archive.state.memos).asSequence()
+        val original=sequenceOf(notes.state.memos,search.state.memos,archive.state.memos).flatten()
             .flatMap {it.attachments.asSequence()}.find {it.name==item.key}?:return
         shellState=shellState.copy(loadingFiles=state.loadingFiles+item.key)
         mediaJobs[jobKey]=viewModelScope.launch {

@@ -21,6 +21,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -38,24 +41,38 @@ data class MediaDisplay(
     val isAudio: Boolean get()=type.startsWith("audio/")
 }
 
+private val FeedSingleImageMaxEdge = 200.dp
+private const val FeedImageColumns = 3
+private val FeedImageCellMaxSize = 100.dp
+private val FeedImageGap = 3.dp
+private val FeedImageGridMaxWidth = FeedImageCellMaxSize * FeedImageColumns + FeedImageGap * (FeedImageColumns - 1)
+
 @Composable
 fun AttachmentList(
     items: List<MediaDisplay>, audio: AudioState, onLoad: (MediaDisplay) -> Unit,
     onPlay: (MediaDisplay) -> Unit, onSeek: (Long) -> Unit,
-    onGallery: (List<MediaDisplay>,Int) -> Unit, compact: Boolean = false,
+    onGallery: (List<MediaDisplay>,Int) -> Unit, feedLayout: Boolean = false,
     onRemove: ((MediaDisplay) -> Unit)? = null,
 ) {
-    val images=items.filter {it.isImage}
-    Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        if(images.size==1) {
-            MediaImage(images[0],onLoad,onClick={onGallery(images,0)},onRemove=onRemove)
-        } else {
-            images.chunked(2).forEachIndexed { rowIndex,row ->
-                Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                    row.forEachIndexed { col,item ->
-                        Box(Modifier.weight(1f)) {MediaImage(item,onLoad,{onGallery(images,rowIndex*2+col)},true,onRemove)}
+    val images = items.filter { it.isImage }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (images.size == 1) {
+            MediaImage(images.single(), onLoad, { onGallery(images, 0) }, feedLayout = feedLayout, onRemove = onRemove)
+        } else if (images.isNotEmpty()) {
+            val columns = if (feedLayout) FeedImageColumns else 2
+            val gap = if (feedLayout) FeedImageGap else 6.dp
+            val grid = if (feedLayout) Modifier.widthIn(max = FeedImageGridMaxWidth) else Modifier
+            Column(grid, verticalArrangement = Arrangement.spacedBy(if (feedLayout) gap else 10.dp)) {
+                images.chunked(columns).forEachIndexed { rowIndex, row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        row.forEachIndexed { columnIndex, item ->
+                            MediaImage(
+                                item, onLoad, { onGallery(images, rowIndex * columns + columnIndex) },
+                                modifier = Modifier.weight(1f), square = true, feedLayout = feedLayout, onRemove = onRemove,
+                            )
+                        }
+                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                     }
-                    if(row.size==1)Spacer(Modifier.weight(1f))
                 }
             }
         }
@@ -77,18 +94,48 @@ fun AttachmentList(
 }
 
 @Composable
-private fun MediaImage(item: MediaDisplay,onLoad:(MediaDisplay)->Unit,onClick:()->Unit,square:Boolean=false,onRemove:((MediaDisplay)->Unit)?=null) {
+private fun MediaImage(
+    item: MediaDisplay, onLoad: (MediaDisplay) -> Unit, onClick: () -> Unit,
+    modifier: Modifier = Modifier, square: Boolean = false, feedLayout: Boolean = false,
+    onRemove: ((MediaDisplay) -> Unit)? = null,
+) {
     val c=LocalMemaoColors.current
-    var loadedRatio by remember(item.key) {mutableFloatStateOf(if(item.width>0&&item.height>0)item.width.toFloat()/item.height else 1.5f)}
+    val metadataRatio = if (item.width > 0 && item.height > 0) item.width.toFloat() / item.height else 1.5f
+    var loadedRatio by remember(item.key, item.file, metadataRatio) { mutableFloatStateOf(metadataRatio) }
     LaunchedEffect(item.key,item.file) {if(item.file==null&&!item.loading)onLoad(item)}
-    Box(Modifier.fillMaxWidth().aspectRatio(if(square)1f else loadedRatio.coerceIn(.1f,10f)).clip(RoundedCornerShape(4.dp)).background(c.soft)) {
+    val size = if (feedLayout && !square) {
+        modifier.sizeIn(maxWidth = FeedSingleImageMaxEdge, maxHeight = FeedSingleImageMaxEdge)
+    } else {
+        modifier.fillMaxWidth()
+    }
+    val ratio = when {
+        square -> 1f
+        feedLayout -> loadedRatio.coerceIn(.02f, 50f)
+        else -> loadedRatio.coerceIn(.1f, 10f)
+    }
+    Box(size.aspectRatio(ratio).clip(RoundedCornerShape(4.dp)).background(c.soft)) {
         if(item.file!=null) AsyncImage(
             model=item.file,contentDescription=item.filename,modifier=Modifier.fillMaxSize().clickable(onClick=onClick),
             contentScale=if(square)ContentScale.Crop else ContentScale.Fit,
-            onSuccess={result -> val size=result.result.image; if(size.width>0&&size.height>0)loadedRatio=size.width.toFloat()/size.height},
-        ) else Column(Modifier.fillMaxSize().clickable {onLoad(item)},horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
-            LineIcon(MmIcon.IMAGE,Modifier.size(MmIconSize.Empty),tint=c.secondary);Spacer(Modifier.height(8.dp))
-            Text(if(item.loading)"正在加载图片…" else "图片尚未缓存 · 点击重试",color=c.secondary,style=MaterialTheme.typography.bodySmall)
+            onSuccess = { result ->
+                val image = result.result.image
+                if (!square && image.width > 0 && image.height > 0) {
+                    loadedRatio = image.width.toFloat() / image.height
+                }
+            },
+        ) else Column(
+            Modifier.fillMaxSize().clickable { onLoad(item) }.semantics { contentDescription = item.filename },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(if (feedLayout) 4.dp else 8.dp, Alignment.CenterVertically),
+        ) {
+            LineIcon(MmIcon.IMAGE, Modifier.size(if (feedLayout) MmIconSize.Toolbar else MmIconSize.Empty), tint = c.secondary)
+            val label = if (feedLayout) {
+                if (item.loading) "加载中…" else "点击重试"
+            } else {
+                if (item.loading) "正在加载图片…" else "图片尚未缓存 · 点击重试"
+            }
+            Text(label, color = c.secondary, style = MaterialTheme.typography.bodySmall,
+                maxLines = if (feedLayout) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
         }
         if(onRemove!=null)Box(Modifier.align(Alignment.TopEnd).background(c.background.copy(alpha=.9f),RoundedCornerShape(bottomStart=8.dp))) {
             MmIconButton(MmIcon.CLOSE,"移除图片") {onRemove(item)}

@@ -19,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -201,9 +200,25 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
             if(memo.content.isNotBlank())FoldableMarkdown(memo.content,expanded,{overflowing=it},toggle,edit,compact=compact)
             else Text(if(memo.attachments.any {it.isImage})"图片记录" else "音频记录",color=c.secondary,style=noteTextStyle)
         }
+        if (overflowing) {
+            Text(
+                if (expanded) "收起" else "全文",
+                modifier = Modifier.widthIn(min = 48.dp).testTag("memoToggle:${memo.name}")
+                    .combinedClickable(
+                        role = Role.Button,
+                        onClickLabel = if (expanded) "收起正文" else "展开正文",
+                        onClick = onToggle,
+                        onLongClickLabel = "编辑笔记",
+                        onLongClick = edit,
+                    ),
+                color = c.memoReadAction,
+                style = noteTextStyle,
+                maxLines = 1,
+            )
+        }
         if(memo.attachments.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            AttachmentList(memo.attachments.map(vm::media),audio,{vm.loadMedia(it)},{vm.loadMedia(it,true)},vm.audio::seekTo,onGallery,compact)
+            AttachmentList(memo.attachments.map(vm::media),audio,{vm.loadMedia(it)},{vm.loadMedia(it,true)},vm.audio::seekTo,onGallery,feedLayout=true)
         }
         Spacer(Modifier.height(noteSpacing))
         Row(
@@ -228,18 +243,6 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
                 )
                 if (memo.visibility != "PRIVATE") {
                     Text(visibilityLabel(memo.visibility), color = c.memoFooter, style = noteTextStyle, maxLines = 1)
-                }
-                if (overflowing) {
-                    Row(
-                        modifier = Modifier.widthIn(min = 48.dp).testTag("memoToggle:${memo.name}")
-                            .combinedClickable(role = Role.Button, onClick = onToggle, onLongClickLabel = "编辑笔记", onLongClick = edit)
-                            .padding(start = 6.dp, end = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.End),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(if (expanded) "收起" else "展开全文", color = c.memoFooter, style = footerTextStyle, maxLines = 1)
-                        LineIcon(MmIcon.DOWN, Modifier.size(footerIconSize).rotate(if (expanded) 180f else 0f), c.memoFooter)
-                    }
                 }
             }
             Box {
