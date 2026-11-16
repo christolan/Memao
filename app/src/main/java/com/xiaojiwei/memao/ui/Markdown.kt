@@ -348,7 +348,8 @@ private fun inlineText(node: Node, color: Color, nativeLinks: Boolean = true, ta
             builder.append(value.substring(cursor,match.range.first))
             builder.pushStringAnnotation("tag",match.groupValues[1])
             builder.pushStyle(SpanStyle(fontSize=0.9.em))
-            builder.append("\u00a0"+match.value+"\u00a0")
+            // Match the title capsule's roomy sides while scaling with text, without changing line height.
+            builder.append("\u00a0\u00a0\u00a0"+match.value+"\u00a0\u00a0\u00a0")
             builder.pop();builder.pop()
             cursor=match.range.last+1
         }
