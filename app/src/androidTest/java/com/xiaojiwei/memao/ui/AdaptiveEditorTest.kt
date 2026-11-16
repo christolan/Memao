@@ -76,6 +76,8 @@ class AdaptiveEditorTest {
         val width=mutableStateOf(420.dp)
         compose.setContent {Box(Modifier.requiredWidth(width.value).fillMaxHeight()){MemaoApp(vm){_,_->}}}
         compose.waitUntil(10_000){vm.state.accountId!=null}
+        compose.onNodeWithTag("drawerToggle").performClick()
+        compose.onNodeWithTag("navigationDrawer").assertIsDisplayed()
         compose.onNodeWithTag("newMemo").performClick()
         compose.waitUntil(10_000){vm.state.editor!=null}
         compose.onNodeWithTag("editorBody").performTextInput("第一行记录\n折叠后继续编辑 #日常")

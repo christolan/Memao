@@ -73,11 +73,13 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("drawerToggle").assertIsDisplayed().assertHasClickAction()
         compose.onNodeWithTag("navNotes").assertIsNotDisplayed()
         compose.onNodeWithTag("navigationDrawer").assertIsNotDisplayed()
-        compose.onNodeWithTag("newMemo").assertIsDisplayed()
+        compose.onNodeWithTag("newMemo").assertIsNotDisplayed()
         saveScreenshot("drawer-compact-closed.png")
 
         openDrawer()
-        compose.onNodeWithTag("newMemo").assertIsNotDisplayed()
+        compose.onNodeWithTag("newMemo").assertIsDisplayed().assert(hasAnyAncestor(hasTestTag("navigationDrawer")))
+        compose.onNodeWithTag("drawerAccounts").assertDoesNotExist()
+        compose.onNode(hasText("测试账号") and hasAnyAncestor(hasTestTag("navigationDrawer"))).assertDoesNotExist()
         compose.onNodeWithTag("navNotes").assertIsSelected()
         compose.onNodeWithTag("navDrafts").performScrollTo().performClick()
         compose.waitUntil(10_000) { vm.state.page == UiPage.DRAFTS }
@@ -102,6 +104,7 @@ class AdaptiveDrawerTest {
     @Test fun closingDrawerOverEditorPreservesDraftAndNavigationSavesIt() {
         val gateway = DrawerGateway()
         val vm = start(gateway)
+        openDrawer()
         compose.onNodeWithTag("newMemo").performClick()
         compose.waitUntil(10_000) { vm.state.editor != null }
         compose.onNodeWithTag("navigationDrawer").assertIsNotDisplayed()
@@ -156,7 +159,13 @@ class AdaptiveDrawerTest {
         compose.runOnIdle { vm.setTheme(ThemeMode.DARK) }
         compose.waitUntil(10_000) { vm.state.settings.theme == ThemeMode.DARK }
         compose.onNodeWithTag("drawerToggle").assertDoesNotExist()
-        compose.onNodeWithTag("navSettings").performScrollTo().assertIsDisplayed().performClick()
+        val headerBounds = compose.onNodeWithTag("drawerHeader").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val footerBounds = compose.onNodeWithTag("newMemo").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithTag("navSettings").performScrollTo().assertIsDisplayed()
+        assertEquals(headerBounds, compose.onNodeWithTag("drawerHeader").assertIsDisplayed().fetchSemanticsNode().boundsInRoot)
+        assertEquals(footerBounds, compose.onNodeWithTag("newMemo").assertIsDisplayed().fetchSemanticsNode().boundsInRoot)
+        compose.onNodeWithTag("drawerAccounts").assertDoesNotExist()
+        compose.onNodeWithTag("navSettings").performClick()
         compose.waitUntil(10_000) { vm.state.page == UiPage.SETTINGS }
         compose.onNodeWithTag("navSettings").assertIsSelected()
         compose.onNodeWithTag("drawerTagFilters").assertDoesNotExist()
@@ -225,19 +234,23 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("memo:memos/drawer0").assertTextContains("记录 0\n#日常")
         compose.onAllNodes(hasText("#日常") and outsideDrawer).assertCountEquals(0)
         saveScreenshot("drawer-tags-compact-selected.png")
-        val newMemo = compose.onNodeWithTag("newMemo").assertIsDisplayed().assert(outsideDrawer)
-        val buttonBounds = newMemo.fetchSemanticsNode().boundsInRoot
-        val listBounds = compose.onNodeWithTag("feedList").fetchSemanticsNode().boundsInRoot
-        assertTrue("The new note button is below the list", buttonBounds.top >= listBounds.bottom)
+        val newMemo = compose.onNodeWithTag("newMemo").assertIsNotDisplayed()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("memo:memos/drawer18"))
-        assertEquals(buttonBounds, newMemo.assertIsDisplayed().fetchSemanticsNode().boundsInRoot)
+        newMemo.assertIsNotDisplayed()
         val key = compose.runOnIdle { vm.notes.scrollKey }
         val initialIndex = compose.runOnIdle { vm.scroll(key).first }
         assertTrue("Fixture must be scrolled past its header", initialIndex > 1)
         compose.onNode(feedTitle).assertTextEquals("笔记 #日常").assertIsDisplayed()
         saveScreenshot("page-title-scrolled-feed.png")
         openDrawer()
-        compose.onNodeWithTag("navNotes").assertTextEquals("笔记")
+        val headerBounds = compose.onNodeWithTag("drawerHeader").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val buttonBounds = newMemo.assertIsDisplayed().assert(hasAnyAncestor(hasTestTag("navigationDrawer"))).fetchSemanticsNode().boundsInRoot
+        val navigationBounds = compose.onNodeWithTag("drawerNavigation").fetchSemanticsNode().boundsInRoot
+        assertTrue("The new note button is below the scrolling navigation", buttonBounds.top >= navigationBounds.bottom)
+        compose.onNodeWithTag("navSettings").performScrollTo().assertIsDisplayed()
+        assertEquals(headerBounds, compose.onNodeWithTag("drawerHeader").assertIsDisplayed().fetchSemanticsNode().boundsInRoot)
+        assertEquals(buttonBounds, newMemo.assertIsDisplayed().fetchSemanticsNode().boundsInRoot)
+        compose.onNodeWithTag("navNotes").performScrollTo().assertTextEquals("笔记")
         compose.onNodeWithTag("tag:日常").performScrollTo().assertIsSelected()
         saveScreenshot("drawer-tags-compact-open.png")
         pressBack()
@@ -278,7 +291,7 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("navArchive").performScrollTo().performClick()
         compose.waitUntil(10_000) { vm.state.page == UiPage.ARCHIVE && vm.state.memos.singleOrNull()?.name == archived.name }
         compose.onNode(feedTitle).assertTextEquals("归档")
-        newMemo.assertDoesNotExist()
+        newMemo.assertIsDisplayed().assert(hasAnyAncestor(hasTestTag("navigationDrawer")))
         compose.onNodeWithTag("memo:${archived.name}").assertTextContains(archived.content).performClick()
         compose.runOnIdle { assertTrue(!vm.state.paneOpen); assertEquals(null, vm.state.editor) }
         compose.onNode(feedTitle).assertTextEquals("归档")
@@ -359,7 +372,7 @@ class AdaptiveDrawerTest {
             compose.waitUntil(10_000) { vm.state.page == UiPage.DRAFTS }
             drawer.assertIsNotDisplayed()
 
-            compose.onNodeWithTag("newMemo").assertDoesNotExist()
+            compose.onNodeWithTag("newMemo").assertIsNotDisplayed()
         } finally {
             compose.mainClock.autoAdvance = true
             compose.waitForIdle()

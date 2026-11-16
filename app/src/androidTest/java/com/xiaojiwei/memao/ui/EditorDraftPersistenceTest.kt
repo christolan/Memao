@@ -307,6 +307,8 @@ class EditorDraftPersistenceTest {
         gateway.listUnavailable = true
         compose.runOnIdle { vm.setUntagged(true) }
         compose.waitUntil(10_000) { vm.state.offline && !vm.state.loading && vm.state.untagged }
+        compose.onNodeWithTag("drawerToggle").performClick()
+        compose.onNodeWithTag("navigationDrawer").assertIsDisplayed()
         compose.onNodeWithTag("newMemo").performClick()
         compose.onNodeWithText("标签").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("#本机缓存标签").fetchSemanticsNodes().size == 1 }

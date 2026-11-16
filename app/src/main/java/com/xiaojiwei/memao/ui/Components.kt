@@ -109,20 +109,25 @@ internal fun MemaoBrandTitle(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier.size(iconSize).background(
-                colorResource(R.color.memao_brand_background),
-                RoundedCornerShape(percent = 25),
-            ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Image(
-                painter = painterResource(R.drawable.ic_memao_brand_mark),
-                contentDescription = null,
-                modifier = Modifier.size(iconSize * 0.6f),
-            )
-        }
+        MemaoAppIcon(iconSize)
         Text(stringResource(R.string.app_name), color = LocalMemaoColors.current.ink, style = style)
+    }
+}
+
+@Composable
+private fun MemaoAppIcon(size: Dp) {
+    Box(
+        modifier = Modifier.size(size).background(
+            colorResource(R.color.memao_brand_background),
+            RoundedCornerShape(percent = 25),
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_memao_brand_mark),
+            contentDescription = null,
+            modifier = Modifier.size(size * 0.6f),
+        )
     }
 }
 
@@ -135,7 +140,13 @@ fun MmTopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable R
     val openDrawer=LocalOpenNavigationDrawer.current
     Column(Modifier.testTag("pageTopBar")) {
         Row(Modifier.fillMaxWidth().heightIn(min=64.dp).padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
-            if(openDrawer!=null)MmIconButton(MmIcon.MENU,"打开导航菜单",modifier=Modifier.testTag("drawerToggle"),onClick=openDrawer)
+            if(openDrawer!=null) {
+                Box(Modifier.size(48.dp).testTag("drawerToggle").clip(RoundedCornerShape(8.dp))
+                    .clickable(role=Role.Button,onClick=openDrawer).semantics {contentDescription="打开导航菜单"},
+                    contentAlignment=Alignment.Center) {
+                    MemaoAppIcon(32.dp)
+                }
+            }
             if(onBack!=null)MmIconButton(MmIcon.BACK,"返回",onClick=onBack)
             else Spacer(Modifier.width(if(openDrawer==null)12.dp else 8.dp))
             Text(title,Modifier.weight(1f).testTag("pageTitle"),color=c.ink,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)

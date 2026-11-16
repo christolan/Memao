@@ -290,6 +290,9 @@ class LiveAppAcceptanceTest {
     }
 
     private fun openNewMemo() {
+        if (exists("drawerToggle") && !compose.onNodeWithTag("navigationDrawer", useUnmergedTree = true).isDisplayed()) {
+            compose.onNodeWithTag("drawerToggle", useUnmergedTree = true).performClick()
+        }
         waitTag("newMemo")
         compose.onNodeWithTag("newMemo", useUnmergedTree = true).performClick()
     }

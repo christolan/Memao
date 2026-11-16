@@ -161,18 +161,6 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
                     MessageNotice(message, vm::dismissMessage, Modifier.align(Alignment.BottomCenter))
                 }
             }
-            if (notes) {
-                MmRule()
-                MmButton(
-                    "记录", vm::newDraft,
-                    Modifier.align(Alignment.CenterHorizontally)
-                        .padding(horizontal = horizontalPadding, vertical = 8.dp)
-                        .widthIn(max = 360.dp).fillMaxWidth().testTag("newMemo"),
-                    primary = true,
-                    enabled = shared.accountId != null && !shared.sending && !shared.importing,
-                    icon = MmIcon.PLUS,
-                )
-            }
         }
     }
 }

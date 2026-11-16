@@ -34,7 +34,6 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.paneTitle
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
@@ -152,7 +151,7 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                             }
                             if(s.page==UiPage.LOGIN) {
                                 LoginPage(s,onConnect,if(s.accountId!=null)({vm.back()})else null,Modifier.weight(1f))
-                            } else if(s.page==UiPage.ACCOUNTS) {
+                            } else if(s.page==UiPage.ACCOUNTS&&s.editor==null) {
                                 AccountsPage(vm,Modifier.weight(1f))
                             } else if(s.page==UiPage.SETTINGS&&s.editor==null) {
                                 SettingsPage(vm,Modifier.weight(1f))
@@ -244,9 +243,9 @@ private fun NavigationDrawer(
 ) {
     val c=LocalMemaoColors.current
     Row(modifier.fillMaxHeight().background(c.background).semantics {paneTitle="导航菜单"}) {
-        Column(Modifier.weight(1f).fillMaxHeight()
-            .verticalScroll(rememberScrollState()).padding(horizontal=16.dp,vertical=12.dp)) {
-            Row(Modifier.fillMaxWidth().heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            Row(Modifier.fillMaxWidth().testTag("drawerHeader").padding(horizontal=16.dp,vertical=12.dp)
+                .heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) {
                 MemaoBrandTitle(
                     Modifier.weight(1f).padding(start = 12.dp),
                     style = LocalTextStyle.current.copy(fontSize = 24.sp),
@@ -254,31 +253,35 @@ private fun NavigationDrawer(
                 )
                 onClose?.let {close->MmIconButton(MmIcon.CLOSE,"关闭导航菜单",modifier=Modifier.testTag("drawerClose"),onClick=close)}
             }
-            Spacer(Modifier.height(20.dp))
-            listOf(UiPage.NOTES,UiPage.DRAFTS,UiPage.ARCHIVE).forEach {page->
-                DrawerItem(page,s.page==page){onNavigate {vm.navigate(page)}}
-            }
-            if(s.page==UiPage.NOTES&&s.editor==null) {
-                Spacer(Modifier.height(12.dp));MmRule();Spacer(Modifier.height(12.dp))
-                Column(Modifier.fillMaxWidth().testTag("drawerTagFilters")) {
-                    Text("标签",Modifier.padding(horizontal=12.dp,vertical=8.dp),color=c.secondary,style=MaterialTheme.typography.labelSmall)
-                    DrawerTagFilter(null,s.tag==null&&!s.untagged){onNavigate {vm.setTag(null)}}
-                    DrawerTagFilter(null,s.untagged,untagged=true){onNavigate {vm.setUntagged(!s.untagged)}}
-                    val tags=(s.tags.map {it.tag}+s.memos.flatMap {it.tags}+listOfNotNull(s.tag)).distinct()
-                    tags.forEach {tag->
-                        DrawerTagFilter(tag,s.tag==tag&&!s.untagged){onNavigate {vm.setTag(if(s.tag==tag)null else tag)}}
+            Column(Modifier.weight(1f).fillMaxWidth().testTag("drawerNavigation")
+                .verticalScroll(rememberScrollState()).padding(start=16.dp,end=16.dp,top=8.dp,bottom=12.dp)) {
+                listOf(UiPage.NOTES,UiPage.DRAFTS,UiPage.ARCHIVE).forEach {page->
+                    DrawerItem(page,s.page==page){onNavigate {vm.navigate(page)}}
+                }
+                if(s.page==UiPage.NOTES&&s.editor==null) {
+                    Spacer(Modifier.height(12.dp));MmRule();Spacer(Modifier.height(12.dp))
+                    Column(Modifier.fillMaxWidth().testTag("drawerTagFilters")) {
+                        Text("标签",Modifier.padding(horizontal=12.dp,vertical=8.dp),color=c.secondary,style=MaterialTheme.typography.labelSmall)
+                        DrawerTagFilter(null,s.tag==null&&!s.untagged){onNavigate {vm.setTag(null)}}
+                        DrawerTagFilter(null,s.untagged,untagged=true){onNavigate {vm.setUntagged(!s.untagged)}}
+                        val tags=(s.tags.map {it.tag}+s.memos.flatMap {it.tags}+listOfNotNull(s.tag)).distinct()
+                        tags.forEach {tag->
+                            DrawerTagFilter(tag,s.tag==tag&&!s.untagged){onNavigate {vm.setTag(if(s.tag==tag)null else tag)}}
+                        }
                     }
                 }
+                Spacer(Modifier.height(12.dp));MmRule();Spacer(Modifier.height(12.dp))
+                DrawerItem(UiPage.SETTINGS,s.page==UiPage.SETTINGS||s.page==UiPage.ACCOUNTS){onNavigate {vm.navigate(UiPage.SETTINGS)}}
             }
-            Spacer(Modifier.height(12.dp));MmRule();Spacer(Modifier.height(12.dp))
-            DrawerItem(UiPage.SETTINGS,s.page==UiPage.SETTINGS||s.page==UiPage.ACCOUNTS){onNavigate {vm.navigate(UiPage.SETTINGS)}}
-            Row(Modifier.fillMaxWidth().heightIn(min=56.dp).clip(RoundedCornerShape(8.dp)).testTag("drawerAccounts")
-                .clickable(role=Role.Button){onNavigate {vm.navigate(UiPage.ACCOUNTS)}}.padding(horizontal=12.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("服务器账号",color=c.secondary,style=MaterialTheme.typography.labelSmall)
-                    Text(s.account?.displayName?:"账号",color=c.ink,style=MaterialTheme.typography.bodyMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
-                }
-                Spacer(Modifier.width(8.dp));LineIcon(MmIcon.NEXT,tint=c.secondary)
+            Column(Modifier.fillMaxWidth().testTag("drawerFooter")) {
+                MmRule()
+                MmButton(
+                    "记录", {onNavigate {vm.newDraft()}},
+                    Modifier.padding(horizontal=16.dp,vertical=12.dp).fillMaxWidth().testTag("newMemo"),
+                    primary=true,
+                    enabled=s.accountId!=null&&!s.sending&&!s.importing,
+                    icon=MmIcon.PLUS,
+                )
             }
         }
         Box(Modifier.width(1.dp).fillMaxHeight().background(c.divider))
