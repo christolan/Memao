@@ -11,8 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
@@ -149,6 +148,36 @@ internal fun memoBodyTextStyle(): TextStyle = MaterialTheme.typography.bodyMediu
     lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
 )
 
+private data class MemoTagBounds(val tag: String, val bounds: Rect)
+
+/** Drawing and hit testing share the whole visible capsule, including its padded sides. */
+private fun visibleTagBounds(
+    layout: TextLayoutResult,
+    tags: List<AnnotatedString.Range<String>>,
+    inset: Float,
+    strokeWidth: Float,
+): List<MemoTagBounds> = buildList {
+    tags.forEach { tag ->
+        for (line in 0 until layout.lineCount) {
+            val start = maxOf(tag.start, layout.getLineStart(line))
+            // visibleEnd excludes elided characters, so hidden tags cannot intercept taps.
+            val end = minOf(tag.end, layout.getLineEnd(line, visibleEnd = true))
+            if (start < end) {
+                val boxes = (start until end).map { layout.getBoundingBox(it) }
+                val left = boxes.minOf { it.left }.coerceAtLeast(0f)
+                val right = boxes.maxOf { it.right }.coerceAtMost(layout.size.width.toFloat())
+                val top = layout.getLineTop(line) + inset
+                val height = (layout.getLineBottom(line) - layout.getLineTop(line) - inset * 2).coerceAtLeast(1f)
+                if (right > left) {
+                    val x = left + strokeWidth / 2
+                    val width = (right - left - strokeWidth).coerceAtLeast(1f)
+                    add(MemoTagBounds(tag.item, Rect(x, top, x + width, top + height)))
+                }
+            }
+        }
+    }
+}
+
 /** Six rendered lines across all Markdown blocks, including wraps caused by width or font scale. */
 @Composable
 fun FoldableMarkdown(
@@ -215,35 +244,31 @@ fun FoldableMarkdown(
                             Text(block.text,Modifier.weight(1f).testTag("memoLineText").drawBehind {
                                 val layout=textLayout ?: return@drawBehind
                                 // Paint inside the existing line box: decoration never changes line metrics.
-                                tagLinks.forEach {tag->
-                                    for(line in 0 until layout.lineCount) {
-                                        val start=maxOf(tag.start,layout.getLineStart(line))
-                                        val end=minOf(tag.end,layout.getLineEnd(line,visibleEnd=true))
-                                        if(start<end) {
-                                            val boxes=(start until end).map {layout.getBoundingBox(it)}
-                                            val left=boxes.minOf {it.left}.coerceAtLeast(0f)
-                                            val right=boxes.maxOf {it.right}.coerceAtMost(size.width)
-                                            val top=layout.getLineTop(line)+2.dp.toPx()
-                                            val height=(layout.getLineBottom(line)-layout.getLineTop(line)-4.dp.toPx()).coerceAtLeast(1f)
-                                            if(right>left)drawRoundRect(c.secondary.copy(alpha=0.6f),Offset(left+0.5.dp.toPx(),top),
-                                                Size((right-left-1.dp.toPx()).coerceAtLeast(1f),height),CornerRadius(height/2),style=Stroke(1.dp.toPx()))
-                                        }
-                                    }
+                                visibleTagBounds(layout,tagLinks,2.dp.toPx(),1.dp.toPx()).forEach {tag->
+                                    val bounds=tag.bounds
+                                    drawRoundRect(c.secondary.copy(alpha=0.6f),bounds.topLeft,bounds.size,
+                                        CornerRadius(bounds.height/2),style=Stroke(1.dp.toPx()))
                                 }
                             }.pointerInput(block.text,links,tagLinks) {
                                 detectTapGestures(
                                     onTap={point->
                                         val layout=textLayout
+                                        val tag=layout?.let {
+                                            visibleTagBounds(it,tagLinks,with(density){2.dp.toPx()},with(density){1.dp.toPx()})
+                                                .firstOrNull {capsule->capsule.bounds.contains(point)}
+                                        }
+                                        if(tag!=null) {
+                                            latestTagClick(tag.tag)
+                                            return@detectTapGestures
+                                        }
                                         val offset=layout?.getOffsetForPosition(point)
                                         val hit=offset?.takeIf {at->
                                             layout!=null&&at<block.text.length&&
                                                 at<layout.getLineEnd(layout.getLineForVerticalPosition(point.y),visibleEnd=true)&&
                                                 layout.getBoundingBox(at).contains(point)
                                         }
-                                        val tag=hit?.let {at->tagLinks.firstOrNull {at>=it.start&&at<it.end}}
                                         val link=hit?.let {at->links.firstOrNull {at>=it.start&&at<it.end}}
                                         when {
-                                            tag!=null -> latestTagClick(tag.item)
                                             link!=null -> runCatching {uriHandler.openUri(link.item)}
                                             else -> latestClick()
                                         }

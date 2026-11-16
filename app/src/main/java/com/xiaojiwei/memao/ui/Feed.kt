@@ -3,6 +3,7 @@ package com.xiaojiwei.memao.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,12 +23,16 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -182,9 +187,15 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
     val footerLineHeight = with(LocalDensity.current) { footerTextStyle.lineHeight.toDp() }
     Column(Modifier.fillMaxWidth().then(if(selected)Modifier.background(c.soft,RoundedCornerShape(8.dp))else Modifier).padding(vertical=noteSpacing)) {
         Box(Modifier.fillMaxWidth().testTag("memo:${memo.name}")
-            .semantics {stateDescription=if(!overflowing)"全文" else if(expanded)"已展开" else "已折叠"}
-            .combinedClickable(role=Role.Button,onClickLabel=if(overflowing)if(expanded)"收起正文" else "展开正文" else null,
-                onClick=toggle,onLongClickLabel="编辑笔记",onLongClick=edit)) {
+            // Text consumes tag/link gestures first; this handles only unconsumed body space.
+            .pointerInput(memo,overflowing,expanded,shared.busy) {
+                detectTapGestures(onTap={toggle()},onLongPress={edit()})
+            }.semantics {
+                stateDescription=if(!overflowing)"全文" else if(expanded)"已展开" else "已折叠"
+                role=Role.Button
+                onClick(label=if(overflowing)if(expanded)"收起正文" else "展开正文" else null) {toggle();true}
+                onLongClick(label="编辑笔记") {edit();true}
+            }) {
             if(memo.content.isNotBlank())FoldableMarkdown(memo.content,expanded,{overflowing=it},toggle,edit,compact=compact,tags=memo.tags,onTagClick=vm::filterByBodyTag)
             else Text(if(memo.attachments.any {it.isImage})"图片记录" else "音频记录",color=c.secondary,style=noteTextStyle)
         }

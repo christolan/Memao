@@ -13,7 +13,7 @@
 
 ## 版本与验收状态
 
-- 当前构建配置为 `0.1.29`（versionCode 30），包含 [标签胶囊与正文筛选](development-and-acceptance.md#标签胶囊与正文筛选)及此前的侧边栏和笔记卡片排版。沿用 [应用内更新](development-and-acceptance.md#应用内更新)与[按版本发布](development-and-acceptance.md#侧载发布条件)。
+- 当前构建配置为 `0.1.30`（versionCode 31），包含 [标签胶囊与正文筛选](development-and-acceptance.md#标签胶囊与正文筛选)及此前的侧边栏和笔记卡片排版。沿用 [应用内更新](development-and-acceptance.md#应用内更新)与[按版本发布](development-and-acceptance.md#侧载发布条件)。
 - 用户反馈 `0.1.16` 可在 Find N6／Android 16／ColorOS 上启动。[`0.1.17` 的登录输入框居中修正](development-issues.md#i31-登录输入框光标偏上) 已通过 Android 16 模拟器验证，目标设备上的居中效果仍待确认。启动问题的修复记录见 [I30](development-issues.md#i30-官方优化包启动即退出)。
 - 各版本的安装、模拟器、隔离服务端和实机证据见 [开发准备与验收](development-and-acceptance.md)。历史交付记录中的 APK 名称与构建路径用于追溯当时的产物。
 
