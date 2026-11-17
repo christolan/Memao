@@ -1,6 +1,7 @@
 package com.xiaojiwei.memao.ui
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
@@ -8,11 +9,13 @@ import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.SavedStateHandle
@@ -21,6 +24,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.xiaojiwei.memao.data.local.MemaoDatabase
@@ -34,6 +38,7 @@ import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -132,8 +137,14 @@ class EditorDraftPersistenceTest {
         openMemoByLongPress()
         val id = compose.runOnIdle { vm.state.editor!!.id }
         val changed = "真实修改需要保留，暂不发送"
-        compose.onNodeWithTag("editorBody").performTextReplacement(changed)
-        compose.waitUntil(10_000) { persisted(first.id).singleOrNull()?.content == changed }
+        compose.runOnIdle {
+            vm.updateEditor(TextFieldValue(changed))
+            assertTrue("The debounce period must already be shown as saving", vm.state.saving)
+        }
+        compose.waitUntil(10_000) { persisted(first.id).singleOrNull()?.content == changed && !vm.state.saving }
+        compose.onNodeWithTag("editorSaveStatus").assertTextEquals("草稿已保存到本机")
+        compose.onNodeWithText("保存到服务器").assertDoesNotExist()
+        capture("saved")
         compose.onNodeWithContentDescription("返回").performClick()
         awaitClosed()
         val saved = persisted(first.id).single()
@@ -141,6 +152,67 @@ class EditorDraftPersistenceTest {
         assertEquals(gateway.memo.name, saved.memoName)
         assertEquals(changed, saved.content)
         assertEquals(0, gateway.publishes)
+    }
+
+    @Test fun olderWriteCannotConfirmNewerTextWhileRoomIsBusy() {
+        start()
+        openMemoByLongPress()
+        val transactionStarted = CompletableDeferred<Unit>()
+        val releaseTransaction = CompletableDeferred<Unit>()
+        val transaction = vm.viewModelScope.launch(Dispatchers.IO) {
+            database.withTransaction {
+                transactionStarted.complete(Unit)
+                releaseTransaction.await()
+            }
+        }
+        runBlocking { withTimeout(10_000) { transactionStarted.await() } }
+        try {
+            compose.runOnIdle {
+                vm.updateEditor(TextFieldValue("前一次输入"))
+                vm.flushOnStop()
+            }
+            // Start the flush on Main before the next UI turn changes its captured content.
+            // The Room transaction keeps that first write suspended until both edits exist.
+            compose.waitForIdle()
+            compose.runOnIdle {
+                vm.updateEditor(TextFieldValue("在写入期间继续输入的内容"))
+                assertTrue(vm.state.saving)
+            }
+        } finally {
+            releaseTransaction.complete(Unit)
+            runBlocking { withTimeout(10_000) { transaction.join() } }
+        }
+        compose.waitUntil(10_000) {
+            !vm.state.saving && persisted(first.id).singleOrNull()?.content == "在写入期间继续输入的内容"
+        }
+        compose.onNodeWithTag("editorSaveStatus").assertTextEquals("草稿已保存到本机")
+        compose.onNodeWithTag("editorBody").assertTextEquals("在写入期间继续输入的内容")
+    }
+
+    @Test fun failedLocalWriteStaysInEditorAndCanBeRetriedInline() {
+        start(withAttachment = true)
+        openMemoByLongPress()
+        val file = compose.runOnIdle { File(vm.state.editor!!.attachments.single().localPath) }
+        val moved = File(file.absolutePath + ".temporarily-missing")
+        assertTrue(file.renameTo(moved))
+        try {
+            compose.onNodeWithTag("editorBody").performTextReplacement("保留失败时的当前输入")
+            compose.waitUntil(10_000) { vm.state.saveError != null && !vm.state.saving }
+            compose.onNodeWithTag("editorSaveStatus").assertTextEquals("草稿保存失败")
+            compose.onNodeWithTag("retryEditorSave").assertIsDisplayed()
+            capture("failed")
+            compose.onNodeWithContentDescription("返回").performClick()
+            compose.waitUntil(10_000) { vm.state.saveError != null && !vm.state.saving }
+            compose.onNodeWithTag("editorBody").assertTextEquals("保留失败时的当前输入")
+        } finally {
+            assertTrue(moved.renameTo(file))
+        }
+        compose.onNodeWithTag("retryEditorSave").performClick()
+        compose.waitUntil(10_000) {
+            !vm.state.saving && vm.state.saveError == null && persisted(first.id).singleOrNull()?.content == "保留失败时的当前输入"
+        }
+        compose.onNodeWithTag("editorSaveStatus").assertTextEquals("草稿已保存到本机")
+        compose.onNodeWithTag("retryEditorSave").assertDoesNotExist()
     }
 
     @Test fun restoringOriginalTextRemovesOnlyThisSessionCopyOnExit() {
@@ -315,6 +387,20 @@ class EditorDraftPersistenceTest {
         compose.onNodeWithText("#其他账号标签").assertDoesNotExist()
         compose.onNodeWithText("#本机缓存标签").performClick()
         compose.onNodeWithTag("editorBody").assertTextEquals("#本机缓存标签")
+        compose.waitUntil(10_000) { !vm.state.saving && persisted(first.id).any { it.content == "#本机缓存标签" } }
+        compose.onNodeWithTag("editorSaveStatus").assertTextEquals("草稿已保存到本机")
+        compose.onNodeWithText("离线草稿").assertExists()
+        compose.onNodeWithTag("sendMemo").assertIsNotEnabled()
+        capture("offline")
+    }
+
+    private fun capture(name: String) {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val output = File(context.filesDir, "acceptance/draft-save-$name.png")
+        output.parentFile!!.mkdirs()
+        output.outputStream().use { stream ->
+            compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, stream)
+        }
     }
 
     private fun persisted(accountId: String): List<Draft> = runBlocking {

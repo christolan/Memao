@@ -253,6 +253,16 @@ class SearchViewModel(private val repository: MemaoRepository, saved: SavedState
         if (value == state.keyword) refresh()
         else changeQuery(value, state.tag, state.untagged)
     }
+
+    fun clearScope() {
+        val id = accountId ?: return
+        if (state.tag == null && !state.untagged) return
+        resetScroll()
+        expandedMemos.clear()
+        val keyword = input.takeIf { it.isNotBlank() }.orEmpty()
+        if (keyword.isNotEmpty()) recent = repository.rememberSearch(id, keyword)
+        changeQuery(keyword, null, untagged = false, fetchResults = keyword.isNotEmpty())
+    }
 }
 
 data class DraftListState(val drafts: List<Draft> = emptyList(), val cacheReady: Boolean = false)

@@ -127,7 +127,7 @@ class LiveAppAcceptanceTest {
             waitAbsent("memo:${second.name}")
             searchFor("$marker 不匹配")
             waitAbsent("memo:${first.name}")
-            waitText("没有找到记录")
+            waitText("没有匹配的笔记")
             searchFor(marker)
             waitTag("memo:${first.name}")
             waitAbsent("memo:${second.name}")

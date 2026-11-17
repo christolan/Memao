@@ -177,8 +177,9 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("navigationDrawer").assertIsDisplayed()
         compose.onNodeWithTag("tag:$longTag").assertIsSelected()
         compose.onNodeWithTag("navNotes").assertTextEquals("笔记")
-        val title = compose.onNode(hasTestTag("pageTitle") and hasText("笔记 #$longTag"))
-        title.assertTextEquals("笔记 #$longTag").assertIsDisplayed()
+        val title = compose.onNodeWithTag("pageTitle")
+        title.assertTextEquals("笔记").assertIsDisplayed()
+        compose.onNodeWithTag("clearTagFilter").assertTextEquals("#$longTag").assertIsDisplayed().assertHasClickAction()
         compose.onNodeWithTag("activeTagFilter").assertDoesNotExist()
         val titleLayout = mutableListOf<TextLayoutResult>()
         title.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(titleLayout) }
@@ -228,11 +229,13 @@ class AdaptiveDrawerTest {
         compose.waitUntil(10_000) { vm.state.tag == "日常" && vm.state.memos.map { it.name }.toSet() == (matching + otherKeyword).map { it.name }.toSet() }
         compose.onNodeWithTag("navigationDrawer").assertIsNotDisplayed()
         compose.onNodeWithTag("tag:日常").assertIsNotDisplayed()
-        compose.onNode(feedTitle).assertTextEquals("笔记 #日常").assertIsDisplayed().assertHasNoClickAction()
+        compose.onNode(feedTitle).assertTextEquals("笔记").assertIsDisplayed().assertHasNoClickAction()
         compose.onNodeWithTag("activeTagFilter").assertDoesNotExist()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("memo:memos/drawer0"))
-        compose.onNodeWithTag("memo:memos/drawer0").assertTextContains("记录 0\n#日常")
-        compose.onAllNodes(hasText("#日常") and outsideDrawer).assertCountEquals(0)
+        compose.onNode(hasTestTag("memoLineText") and hasAnyAncestor(hasTestTag("memo:memos/drawer0")), useUnmergedTree = true)
+            .assertTextContains("记录 0", substring = true)
+            .assertTextContains("#日常", substring = true)
+        compose.onNodeWithTag("clearTagFilter").assertTextEquals("#日常").assertHasClickAction()
         saveScreenshot("drawer-tags-compact-selected.png")
         val newMemo = compose.onNodeWithTag("newMemo").assertIsNotDisplayed()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("memo:memos/drawer18"))
@@ -240,7 +243,7 @@ class AdaptiveDrawerTest {
         val key = compose.runOnIdle { vm.notes.scrollKey }
         val initialIndex = compose.runOnIdle { vm.scroll(key).first }
         assertTrue("Fixture must be scrolled past its header", initialIndex > 1)
-        compose.onNode(feedTitle).assertTextEquals("笔记 #日常").assertIsDisplayed()
+        compose.onNode(feedTitle).assertTextEquals("笔记").assertIsDisplayed()
         saveScreenshot("page-title-scrolled-feed.png")
         openDrawer()
         val headerBounds = compose.onNodeWithTag("drawerHeader").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
@@ -264,7 +267,7 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("search").assertIsDisplayed().assertTextEquals("记录")
         compose.onNodeWithTag("searchResults").assertIsDisplayed()
         compose.onNodeWithText("取消").assertIsDisplayed().performClick()
-        compose.onNode(feedTitle).assertTextEquals("笔记 #日常").assertIsDisplayed()
+        compose.onNode(feedTitle).assertTextEquals("笔记").assertIsDisplayed()
         compose.onNodeWithTag("navNotes").assertTextEquals("笔记")
         compose.runOnIdle {
             assertEquals("日常", vm.state.tag)
@@ -283,7 +286,11 @@ class AdaptiveDrawerTest {
         compose.onNode(feedTitle).assertTextEquals("笔记")
         compose.onNodeWithTag("search").assertDoesNotExist()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("memo:${otherTag.name}"))
-        compose.onNodeWithTag("memo:${otherTag.name}").assertIsDisplayed().assertTextContains(otherTag.content).performClick()
+        compose.onNode(hasTestTag("memoLineText") and hasAnyAncestor(hasTestTag("memo:${otherTag.name}")), useUnmergedTree = true)
+            .assertIsDisplayed()
+            .assertTextContains("记录旅途", substring = true)
+            .assertTextContains("#旅行", substring = true)
+        compose.onNodeWithTag("memo:${otherTag.name}").performClick()
         compose.runOnIdle { assertTrue(!vm.state.paneOpen); assertEquals(null, vm.state.editor) }
         compose.onNode(feedTitle).assertTextEquals("笔记")
         compose.onAllNodes(hasText("#旅行") and outsideDrawer).assertCountEquals(0)
@@ -292,7 +299,10 @@ class AdaptiveDrawerTest {
         compose.waitUntil(10_000) { vm.state.page == UiPage.ARCHIVE && vm.state.memos.singleOrNull()?.name == archived.name }
         compose.onNode(feedTitle).assertTextEquals("归档")
         newMemo.assertIsDisplayed().assert(hasAnyAncestor(hasTestTag("navigationDrawer")))
-        compose.onNodeWithTag("memo:${archived.name}").assertTextContains(archived.content).performClick()
+        compose.onNode(hasTestTag("memoLineText") and hasAnyAncestor(hasTestTag("memo:${archived.name}")), useUnmergedTree = true)
+            .assertTextContains("归档正文", substring = true)
+            .assertTextContains("#存档", substring = true)
+        compose.onNodeWithTag("memo:${archived.name}").performClick()
         compose.runOnIdle { assertTrue(!vm.state.paneOpen); assertEquals(null, vm.state.editor) }
         compose.onNode(feedTitle).assertTextEquals("归档")
         compose.onAllNodesWithText("#存档").assertCountEquals(0)
@@ -457,7 +467,7 @@ class AdaptiveDrawerTest {
         compose.onNodeWithTag("search").performTextReplacement("无匹配正文")
         compose.onNodeWithContentDescription("执行搜索").assertIsEnabled().performClick()
         compose.waitUntil(10_000) { vm.search.state.keyword == "无匹配正文" && !vm.search.state.loading }
-        compose.onNodeWithText("没有找到记录").assertIsDisplayed()
+        compose.onNodeWithText("没有匹配的笔记").assertIsDisplayed()
         before = gateway.listCalls.get()
         pullFeed("searchResults")
         compose.waitUntil(10_000) { gateway.listCalls.get() == before + 1 && !vm.search.state.loading }

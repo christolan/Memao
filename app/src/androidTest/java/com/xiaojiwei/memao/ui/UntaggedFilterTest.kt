@@ -70,7 +70,7 @@ class UntaggedFilterTest {
         compose.onNodeWithTag("tag:无标签").assertTextEquals("#无标签")
         compose.onNodeWithTag("filter:untagged").performScrollTo().performClick()
         awaitCount(vm, 3)
-        compose.onNodeWithTag("pageTitle").assertTextEquals("笔记 无标签")
+        assertNoteScope("无标签")
         compose.onNodeWithTag("navigationDrawer").assertIsNotDisplayed()
         saveScreenshot("untagged-compact-feed.png")
         openDrawer()
@@ -94,11 +94,11 @@ class UntaggedFilterTest {
         closeSearch()
         awaitCount(vm, 3)
         assertEquals(beforeSearch + 1, gateway.callCount())
-        compose.onNodeWithTag("pageTitle").assertTextEquals("笔记 无标签")
+        assertNoteScope("无标签")
 
         selectFilter("tag:无标签")
         awaitNames(vm, setOf("memos/named"))
-        compose.onNodeWithTag("pageTitle").assertTextEquals("笔记 #无标签")
+        assertNoteScope("#无标签")
         openSearch()
         compose.onNodeWithText("最近搜索").assertIsDisplayed()
         saveScreenshot("search-compact-history.png")
@@ -181,7 +181,7 @@ class UntaggedFilterTest {
         vm = replaceViewModel()
         awaitNames(vm, setOf("memos/plain2", "memos/plain3"))
         compose.runOnIdle { assertTrue(vm.state.untagged); assertNull(vm.state.tag) }
-        compose.onNodeWithTag("pageTitle").assertTextEquals("笔记 无标签")
+        assertNoteScope("无标签")
         openSearch()
         compose.onNodeWithText("HELLO").assertIsDisplayed()
         compose.onNodeWithText("Another").assertIsDisplayed()
@@ -201,6 +201,9 @@ class UntaggedFilterTest {
         awaitSearchNames(vm, setOf("memos/plain1", "memos/plain3"))
         compose.onNodeWithText("当前只搜索已缓存的内容，联网后可以查找更多。").assertIsDisplayed()
         saveScreenshot("search-offline.png")
+        compose.onNodeWithTag("clearSearchScope").performClick()
+        awaitSearchNames(vm, setOf("memos/plain1", "memos/plain3", "memos/named", "memos/daily"))
+        compose.runOnIdle { assertTrue(vm.search.state.offline); assertTrue(vm.notes.state.untagged) }
         closeSearch()
         selectFilter("tag:all")
         awaitCount(vm, 5)
@@ -222,12 +225,88 @@ class UntaggedFilterTest {
         openSearch()
         submitKeyword("不存在")
         awaitSearchNames(vm, emptySet())
-        compose.onNodeWithText("没有找到记录").assertIsDisplayed()
+        compose.onNodeWithText("没有匹配的笔记").assertIsDisplayed()
         compose.onNodeWithText("写下此刻的想法").assertDoesNotExist()
         saveScreenshot("search-wide-dark-empty.png")
         closeSearch()
         compose.onNodeWithTag("filter:untagged").assertIsSelected()
-        compose.onNodeWithTag("pageTitle").assertTextEquals("笔记 无标签")
+        assertNoteScope("无标签")
+    }
+
+    @Test fun clearingScopedEmptySearchRepeatsKeywordAndRestoresOriginalNotes() {
+        val gateway = FilterGateway()
+        val vm = start(gateway)
+        awaitCount(vm, 5)
+        selectFilter("tag:日常")
+        awaitNames(vm, setOf("memos/daily"))
+        val originalList = compose.runOnIdle { vm.notes.listState }
+        openSearch()
+        submitKeyword("Another")
+        awaitSearchNames(vm, emptySet())
+        compose.onNodeWithTag("clearSearchScope").assertTextEquals("#日常").assertIsDisplayed()
+        compose.onNodeWithText("当前只搜索 #日常。").assertIsDisplayed()
+        saveScreenshot("search-scope-empty.png")
+        compose.onNodeWithTag("searchAllNotes").performClick()
+        awaitSearchNames(vm, setOf("memos/plain2"))
+        compose.onNodeWithTag("search").assertTextEquals("Another")
+        compose.onNodeWithTag("clearSearchScope").assertDoesNotExist()
+        compose.onNodeWithText("全部笔记").assertIsDisplayed()
+        assertEquals("Another", gateway.lastCall().query.keyword)
+        assertNull(gateway.lastCall().query.tag)
+        assertFalse(gateway.lastCall().query.untagged)
+        saveScreenshot("search-scope-all.png")
+        closeSearch()
+        awaitNames(vm, setOf("memos/daily"))
+        assertNoteScope("#日常")
+        compose.runOnIdle {
+            assertSame(originalList, vm.notes.listState)
+            assertEquals("日常", vm.notes.state.tag)
+        }
+        compose.onNodeWithTag("clearTagFilter").performClick()
+        awaitCount(vm, 5)
+        compose.onNodeWithTag("clearTagFilter").assertDoesNotExist()
+    }
+
+    @Test fun clearingUntaggedScopeUsesCurrentInputAndKeepsBlankSearchIdle() {
+        val gateway = FilterGateway()
+        val vm = start(gateway)
+        awaitCount(vm, 5)
+        selectFilter("filter:untagged")
+        awaitCount(vm, 3)
+        assertNoteScope("无标签")
+        val originalList = compose.runOnIdle { vm.notes.listState }
+        openSearch()
+        val before = gateway.callCount()
+        compose.onNodeWithTag("clearSearchScope").assertTextEquals("无标签").performClick()
+        compose.onNodeWithText("最近搜索").assertIsDisplayed()
+        compose.onNodeWithText("全部笔记").assertIsDisplayed()
+        compose.runOnIdle { assertTrue(vm.search.state.keyword.isEmpty()); assertTrue(vm.notes.state.untagged) }
+        assertEquals(before, gateway.callCount())
+        closeSearch()
+        openSearch()
+        submitKeyword("hello")
+        awaitSearchNames(vm, setOf("memos/plain1", "memos/plain3"))
+        compose.onNodeWithTag("search").performTextReplacement("Another")
+        compose.onNodeWithTag("clearSearchScope").performClick()
+        awaitSearchNames(vm, setOf("memos/plain2"))
+        assertEquals("Another", gateway.lastCall().query.keyword)
+        assertFalse(gateway.lastCall().query.untagged)
+        closeSearch()
+        awaitCount(vm, 3)
+        compose.runOnIdle {
+            assertSame(originalList, vm.notes.listState)
+            assertTrue(vm.notes.state.untagged)
+        }
+        assertNoteScope("无标签")
+        compose.onNodeWithTag("clearTagFilter").performClick()
+        awaitCount(vm, 5)
+        compose.runOnIdle { assertFalse(vm.notes.state.untagged); assertNull(vm.notes.state.tag) }
+        compose.onNodeWithTag("clearTagFilter").assertDoesNotExist()
+    }
+
+    private fun assertNoteScope(label: String) {
+        compose.onNodeWithTag("pageTitle").assertTextEquals("笔记")
+        compose.onNodeWithTag("clearTagFilter").assertTextEquals(label).assertHasClickAction()
     }
 
     private fun openSearch() {

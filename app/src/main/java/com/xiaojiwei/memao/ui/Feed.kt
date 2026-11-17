@@ -108,12 +108,11 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
     val notes=page.page==UiPage.NOTES
     val topPadding=if(notes)0.dp else 16.dp
     val horizontalPadding=if(notes||compact)20.dp else 24.dp
-    val title=page.page.title+if(notes){if(s.untagged)" 无标签" else ""}else ""
     key(page.accountId,page.scrollKey) {
         TrackPageScroll(page)
         val refreshState=rememberPullToRefreshState()
         Column(Modifier.fillMaxSize().testTag("feedPage")) {
-            MmTopBar(title,filterTag=if(notes)s.tag else null,onClearTag={vm.setTag(null)}) {
+            MmTopBar(page.page.title,filterTag=if(notes)s.tag else null,filterUntagged=notes&&s.untagged,onClearTag={vm.setTag(null)}) {
                 if(notes)MmIconButton(MmIcon.SEARCH,"搜索",modifier=Modifier.testTag("openSearch"),onClick=vm::openSearch)
             }
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().pullToRefresh(
@@ -284,11 +283,12 @@ private fun DraftRow(draft:Draft,selected:Boolean,onClick:()->Unit) {
 }
 
 @Composable
-internal fun EmptyFeed(title:String,message:String,icon:MmIcon=MmIcon.NOTES) {
+internal fun EmptyFeed(title:String,message:String,icon:MmIcon=MmIcon.NOTES,action:(@Composable ()->Unit)?=null) {
     val c=LocalMemaoColors.current
     Column(Modifier.fillMaxWidth().padding(vertical=64.dp),horizontalAlignment=Alignment.CenterHorizontally) {
         LineIcon(icon,Modifier.size(MmIconSize.Empty),tint=c.secondary);Spacer(Modifier.height(20.dp))
         Text(title,color=c.ink,style=MaterialTheme.typography.titleMedium);Spacer(Modifier.height(10.dp));Text(message,color=c.secondary,style=MaterialTheme.typography.bodySmall)
+        action?.let {Spacer(Modifier.height(16.dp));it()}
     }
 }
 

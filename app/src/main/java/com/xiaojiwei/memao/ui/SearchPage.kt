@@ -1,18 +1,22 @@
 package com.xiaojiwei.memao.ui
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
@@ -64,6 +68,12 @@ fun SearchPage(
         vm.submitSearch(keyword)
     }
 
+    fun clearScope() {
+        keyboard?.hide()
+        focusManager.clearFocus()
+        vm.clearSearchScope()
+    }
+
     LaunchedEffect(page) {
         if (page.input.isBlank()) {
             focusRequester.requestFocus()
@@ -106,20 +116,29 @@ fun SearchPage(
                 vm.closeSearch()
             }, Modifier.testTag("cancelSearch"))
         }
-        scopeLabel?.let {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                "搜索范围 · $it",
-                Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+                "搜索范围",
                 color = colors.secondary,
                 style = MaterialTheme.typography.labelSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.width(8.dp))
+            if (scopeLabel != null) {
+                MmFilterChip(
+                    scopeLabel, ::clearScope, Modifier.weight(1f, fill = false).testTag("clearSearchScope"),
+                    clearDescription = "清除筛选，搜索全部笔记",
+                )
+            } else {
+                Text("全部笔记", color = colors.secondary, style = MaterialTheme.typography.labelSmall)
+            }
         }
         MmRule()
         when {
             page.input.isBlank() -> RecentSearches(page.recent, ::submit)
-            state.keyword == page.input -> SearchResults(vm, page, audio, onGallery, compact)
+            state.keyword == page.input -> SearchResults(vm, page, audio, onGallery, compact, ::clearScope)
         }
     }
 }
@@ -158,6 +177,7 @@ private fun SearchResults(
     audio: AudioState,
     onGallery: (List<MediaDisplay>, Int) -> Unit,
     compact: Boolean,
+    onClearScope: () -> Unit,
 ) {
     val colors = LocalMemaoColors.current
     val state = page.state
@@ -197,7 +217,25 @@ private fun SearchResults(
                 if (!state.refreshing && (state.loading || !state.cacheReady)) {
                     items(3) { SkeletonRow() }
                 } else {
-                    item(key = "empty") { EmptyFeed("没有找到记录", "试试其他关键词。", MmIcon.SEARCH) }
+                    item(key = "empty") {
+                        val filtered = state.tag != null || state.untagged
+                        EmptyFeed(
+                            "没有匹配的笔记",
+                            when {
+                                state.untagged -> "当前只搜索未加标签的笔记。"
+                                state.tag != null -> "当前只搜索 #${state.tag}。"
+                                else -> "试试其他关键词。"
+                            },
+                            MmIcon.SEARCH,
+                            action = if (filtered) ({
+                                MmButton(
+                                    "搜索全部笔记", onClearScope,
+                                    Modifier.border(1.dp, colors.divider, RoundedCornerShape(8.dp)).testTag("searchAllNotes"),
+                                    enabled = !state.loading,
+                                )
+                            }) else null,
+                        )
+                    }
                 }
             }
             items(state.memos, key = { it.name }) { memo ->

@@ -21,6 +21,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -30,6 +33,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit) {
     val s=vm.state;val draft=s.editor?:return;val c=LocalMemaoColors.current
     val context=LocalContext.current
@@ -64,7 +68,6 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
             )
             MmButton(if(s.sending)"保存中…" else "保存",{keyboard?.hide();vm.send()},Modifier.testTag("sendMemo"),primary=true,enabled=editable&&!draft.empty&&!s.offline)
         }
-        s.saveError?.let {StateBanner(it,error=true,action={MmButton("重试保存",vm::retrySave)})}
         s.error?.let {StateBanner(it,error=true,action={MmIconButton(MmIcon.CLOSE,"关闭错误提示",onClick=vm::dismissError)})}
         key(draft.id,s.preview) {
             val scrollKey="editor:${draft.id}:${s.preview}"
@@ -91,25 +94,38 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
                     onRemove=if(editable)({item->removing=item})else null)
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-            LineIcon(visibilityIcon(if(draft.isNew)"PRIVATE" else draft.baseMemo?.visibility?:"PRIVATE"),tint=c.secondary);Spacer(Modifier.width(6.dp))
-            Text(if(draft.isNew)"私密笔记" else visibilityLabel(draft.baseMemo?.visibility?:"PRIVATE")+" · 保持原可见性",Modifier.weight(1f),color=c.secondary,style=MaterialTheme.typography.labelSmall)
-            Spacer(Modifier.width(8.dp))
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    when {
-                        s.importing -> "正在保存附件…"
-                        s.saving -> "正在保存…"
-                        s.saveError != null -> "保存失败"
-                        draft.empty -> "尚无内容"
-                        s.editorUnchanged -> "未修改"
-                        else -> "已保存在本机"
-                    },
-                    color = if (s.saveError != null) c.danger else c.secondary,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-                if (s.offline) Text("离线草稿", color = c.secondary, style = MaterialTheme.typography.labelSmall)
+        MmRule()
+        Column(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp)) {
+            FlowRow(
+                modifier=Modifier.fillMaxWidth(),
+                horizontalArrangement=Arrangement.SpaceBetween,
+                verticalArrangement=Arrangement.spacedBy(4.dp),
+                itemVerticalAlignment=Alignment.CenterVertically,
+            ) {
+                Row(Modifier.padding(end=12.dp),verticalAlignment=Alignment.CenterVertically) {
+                    LineIcon(visibilityIcon(if(draft.isNew)"PRIVATE" else draft.baseMemo?.visibility?:"PRIVATE"),tint=c.secondary)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if(draft.isNew)"私密笔记" else visibilityLabel(draft.baseMemo?.visibility?:"PRIVATE")+" · 保持原可见性",color=c.secondary,style=MaterialTheme.typography.labelSmall)
+                }
+                Column(horizontalAlignment=Alignment.End) {
+                    Text(
+                        when {
+                            s.importing -> "正在保存附件…"
+                            s.saveError != null -> "草稿保存失败"
+                            s.saving -> "正在保存草稿…"
+                            draft.empty -> "尚无内容"
+                            s.editorUnchanged -> "未修改"
+                            else -> "草稿已保存到本机"
+                        },
+                        modifier=Modifier.testTag("editorSaveStatus").semantics {liveRegion=LiveRegionMode.Polite},
+                        color = if (s.saveError != null) c.danger else c.secondary,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    if (s.offline) Text("离线草稿", color = c.secondary, style = MaterialTheme.typography.labelSmall)
+                }
+                if(s.saveError!=null)MmButton("重试保存",vm::retrySave,Modifier.testTag("retryEditorSave"),enabled=editable)
             }
+            s.saveError?.let {Text(it,color=c.danger,style=MaterialTheme.typography.labelSmall)}
         }
         if(!s.preview) {
             MmRule()
