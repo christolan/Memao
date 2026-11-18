@@ -15,7 +15,6 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.SavedStateHandle
@@ -138,7 +137,7 @@ class EditorDraftPersistenceTest {
         val id = compose.runOnIdle { vm.state.editor!!.id }
         val changed = "真实修改需要保留，暂不发送"
         compose.runOnIdle {
-            vm.updateEditor(TextFieldValue(changed))
+            vm.editorInput!!.edit { replace(0, length, changed) }
             assertTrue("The debounce period must already be shown as saving", vm.state.saving)
         }
         compose.waitUntil(10_000) { persisted(first.id).singleOrNull()?.content == changed && !vm.state.saving }
@@ -168,14 +167,14 @@ class EditorDraftPersistenceTest {
         runBlocking { withTimeout(10_000) { transactionStarted.await() } }
         try {
             compose.runOnIdle {
-                vm.updateEditor(TextFieldValue("前一次输入"))
+                vm.editorInput!!.edit { replace(0, length, "前一次输入") }
                 vm.flushOnStop()
             }
             // Start the flush on Main before the next UI turn changes its captured content.
             // The Room transaction keeps that first write suspended until both edits exist.
             compose.waitForIdle()
             compose.runOnIdle {
-                vm.updateEditor(TextFieldValue("在写入期间继续输入的内容"))
+                vm.editorInput!!.edit { replace(0, length, "在写入期间继续输入的内容") }
                 assertTrue(vm.state.saving)
             }
         } finally {

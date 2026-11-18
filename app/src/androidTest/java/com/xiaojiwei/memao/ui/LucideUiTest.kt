@@ -18,7 +18,6 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -169,7 +168,12 @@ class LucideUiTest {
             "有序列表" to "1. 文字", "引用" to "> 文字", "链接" to "[文字](https://)", "待办列表" to "- [ ] 文字",
         )
         for ((label, expected) in examples) {
-            compose.runOnIdle { vm.updateEditor(TextFieldValue("文字", TextRange(0, 2))) }
+            compose.runOnIdle {
+                vm.editorInput!!.edit {
+                    replace(0, length, "文字")
+                    selection = TextRange(0, 2)
+                }
+            }
             compose.onNodeWithContentDescription(label).performScrollTo()
                 .assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp).performClick()
             compose.onNodeWithTag("editorBody").assert(

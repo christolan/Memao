@@ -24,8 +24,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.xiaojiwei.memao.media.AudioState
 import com.xiaojiwei.memao.ui.theme.LocalMemaoColors
@@ -36,19 +34,12 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalLayoutApi::class)
 fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,Int)->Unit) {
     val s=vm.state;val draft=s.editor?:return;val c=LocalMemaoColors.current
+    val input=vm.editorInput?:return
     val context=LocalContext.current
     val keyboard=LocalSoftwareKeyboardController.current
     val scope=rememberCoroutineScope()
     val focus=remember {FocusRequester()}
-    var field by rememberSaveable(draft.id,stateSaver=TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(draft.content,TextRange(draft.cursorStart.coerceIn(0,draft.content.length),draft.cursorEnd.coerceIn(0,draft.content.length))))
-    }
-    LaunchedEffect(draft.content,draft.cursorStart,draft.cursorEnd) {
-        if(field.text!=draft.content||field.selection.start!=draft.cursorStart||field.selection.end!=draft.cursorEnd) {
-            field=TextFieldValue(draft.content,TextRange(draft.cursorStart.coerceIn(0,draft.content.length),draft.cursorEnd.coerceIn(0,draft.content.length)))
-        }
-    }
-    LaunchedEffect(draft.id,s.preview) {
+    LaunchedEffect(input,s.preview) {
         if(!s.preview){focus.requestFocus();if(vm.consumeEditorFocus(draft.id))keyboard?.show()}
     }
     val images=rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) {uris->vm.importFiles(uris)}
@@ -69,7 +60,7 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
             MmButton(if(s.sending)"保存中…" else "保存",{keyboard?.hide();vm.send()},Modifier.testTag("sendMemo"),primary=true,enabled=editable&&!draft.empty&&!s.offline)
         }
         s.error?.let {StateBanner(it,error=true,action={MmIconButton(MmIcon.CLOSE,"关闭错误提示",onClick=vm::dismissError)})}
-        key(draft.id,s.preview) {
+        key(input,s.preview) {
             val scrollKey="editor:${draft.id}:${s.preview}"
             val scroll=rememberScrollState(vm.scroll(scrollKey).second)
             LaunchedEffect(scroll){snapshotFlow {scroll.value}.distinctUntilChanged().collect {vm.saveScroll(scrollKey,0,it)}}
@@ -78,17 +69,12 @@ fun EditorPage(vm:MemaoViewModel,audio:AudioState,onGallery:(List<MediaDisplay>,
                     if(draft.content.isNotBlank())Markdown(draft.content)
                     else if(draft.attachments.isEmpty())Text("预览会显示在这里",color=c.secondary,style=MaterialTheme.typography.bodyMedium)
                 } else BasicTextField(
-                    value=field,
-                    onValueChange={
-                        // Disposing the source field for preview causes Foundation to deselect it.
-                        // Read-only preview must not overwrite the user's source selection.
-                        if(!vm.state.preview||it.text!=field.text){field=it;vm.updateEditor(it)}
-                    },
+                    state=input,
                     modifier=Modifier.fillMaxWidth().heightIn(min=200.dp).focusRequester(focus).testTag("editorBody"),
                     enabled=editable,
                     textStyle=MaterialTheme.typography.bodyLarge.copy(color=c.ink),
                     cursorBrush=SolidColor(c.ink),
-                    decorationBox={inner->Box {if(field.text.isEmpty())Text("记下此刻的想法…",color=c.secondary,style=MaterialTheme.typography.bodyLarge);inner()}},
+                    decorator={inner->Box {if(input.text.isEmpty())Text("记下此刻的想法…",color=c.secondary,style=MaterialTheme.typography.bodyLarge);inner()}},
                 )
                 AttachmentList(draft.attachments.map(vm::media),audio,{vm.loadMedia(it)},{vm.loadMedia(it,true)},vm.audio::seekTo,onGallery,
                     onRemove=if(editable)({item->removing=item})else null)

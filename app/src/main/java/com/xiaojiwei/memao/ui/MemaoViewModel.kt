@@ -4,11 +4,12 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.Uri
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -88,13 +89,15 @@ class MemaoViewModel(
         get() {
             val list=currentList?.state
             val localDrafts=drafts.state.drafts
+            val editor=currentEditor()
             return shellState.copy(
+                editor=editor,
                 memos=list?.memos.orEmpty(),drafts=localDrafts,tags=notes.state.tags,
                 tag=notes.state.tag,untagged=notes.state.untagged,
                 loading=list?.loading?:false,refreshing=list?.refreshing?:false,hasMore=list?.hasMore?:false,
                 busy=shellState.busy||shellState.preparingMemo!=null,
-                editorUnchanged=shellState.editor?.let {current->editorBaseline?.let(current::hasSameContentAs)}?:false,
-                saving=shellState.saving||(shellState.saveError==null&&shellState.editor?.let {current->
+                editorUnchanged=editor?.let {current->editorBaseline?.let(current::hasSameContentAs)}?:false,
+                saving=shellState.saving||(shellState.saveError==null&&editor?.let {current->
                     savedEditor?.let {persisted->
                         current.id!=persisted.id||current.accountId!=persisted.accountId||!current.hasSameContentAs(persisted)
                     }?:true
@@ -104,10 +107,13 @@ class MemaoViewModel(
             )
         }
     val audio=ForegroundAudio(context.applicationContext)
+    internal var editorInput by mutableStateOf<TextFieldState?>(null)
+        private set
+    private var previewSelection by mutableStateOf<TextRange?>(null)
+    private var editorInputObserver:Job?=null
     private var autosave:Job?=null
     private var memoLoadJob:Job?=null
     private var memoRequestId=0L
-    private var editVersion=0L
     private var editorBaseline:Draft?=null
     private var savedEditor:Draft?=null
     private var editorSession=0L
@@ -137,7 +143,7 @@ class MemaoViewModel(
                 if(id!=state.accountId) {
                     cancelMemoRequest()
                     cacheSettings.reset()
-                    editorBaseline=null;savedEditor=null;editorSession++;discardUnchangedEditor=false
+                    clearEditor()
                     audio.stop()
                     mediaJobs.values.forEach {it.cancel()};mediaJobs.clear()
                     shellState=shellState.copy(
@@ -167,6 +173,7 @@ class MemaoViewModel(
                 val previousAccount=state.accountId
                 val account=repository.connect(server,token)
                 cancelMemoRequest()
+                clearEditor()
                 shellState=shellState.copy(pendingAuthentication=null,page=UiPage.NOTES,tag=null,error=null,loginError=null,
                     editor=null,draftDetail=null,paneOpen=false,conflict=null)
                 if(account.id==previousAccount&&account.id==state.accountId)notes.resetFiltersAndRefresh()
@@ -207,7 +214,7 @@ class MemaoViewModel(
     fun removeAccount(account:Account) {
         viewModelScope.launch {
             try {
-                if(state.accountId==account.id){cancelMemoRequest();autosave?.cancel();shellState=shellState.copy(editor=null,draftDetail=null);audio.stop()}
+                if(state.accountId==account.id){cancelMemoRequest();clearEditor();shellState=shellState.copy(draftDetail=null);audio.stop()}
                 repository.removeAccount(account.id)
                 shellState=shellState.copy(message="已清理该账号的本地数据，服务端数据未改变。")
             }catch(e:Exception){report(e)}
@@ -301,34 +308,74 @@ class MemaoViewModel(
         editorBaseline=draft;discardUnchangedEditor=false
         savedEditor=draft;editorSession++
         shellState=shellState.copy(editor=draft,draftDetail=null,paneOpen=true,preview=false,saveError=null,saving=false,editorNew=newEditor)
-        editVersion++
+        observeEditorInput(draft)
     }
     fun newDraft() {
         leaveEditor {
             val id=state.accountId?:return@leaveEditor
-            val d=repository.newDraft(id)
-            editorBaseline=d;discardUnchangedEditor=false
-            savedEditor=d;editorSession++
-            shellState=shellState.copy(editor=d,draftDetail=null,paneOpen=true,preview=false,editorNew=true,saveError=null,saving=false)
-            editVersion++
+            openDraft(repository.newDraft(id),newEditor=true)
         }
     }
-    fun updateEditor(value:TextFieldValue) {
-        val old=state.editor?:return
-        if(state.preview&&old.content==value.text)return
-        shellState=shellState.copy(editor=old.copy(content=value.text,cursorStart=value.selection.start,cursorEnd=value.selection.end),
-            saveError=if(old.content==value.text)shellState.saveError else null)
-        editVersion++;autosave?.cancel()
+
+    // Read directly at the point of use. The autosave observer may not have run yet when a
+    // toolbar action, lifecycle event, or a previous write races with a new IME edit.
+    private fun currentEditor():Draft? {
+        val draft=shellState.editor?:return null
+        val input=editorInput?:return draft
+        val text=input.text.toString()
+        val selection=previewSelection?:input.selection
+        return if(draft.content==text&&draft.cursorStart==selection.start&&draft.cursorEnd==selection.end)draft
+        else draft.copy(content=text,cursorStart=selection.start,cursorEnd=selection.end)
+    }
+
+    private fun observeEditorInput(draft:Draft) {
+        editorInputObserver?.cancel()
+        previewSelection=null
+        val selection=TextRange(draft.cursorStart.coerceIn(0,draft.content.length),
+            draft.cursorEnd.coerceIn(0,draft.content.length))
+        val input=TextFieldState(draft.content,selection)
+        editorInput=input
+        editorInputObserver=viewModelScope.launch {
+            snapshotFlow {input.text.toString() to input.selection}.collect {
+                if(editorInput!==input)return@collect
+                val previous=shellState.editor?:return@collect
+                val current=currentEditor()?:return@collect
+                if(previous==current)return@collect
+                shellState=shellState.copy(editor=current,
+                    saveError=if(previous.content==current.content)shellState.saveError else null)
+                if(!shellState.sending&&!shellState.importing)scheduleEditorSave()
+            }
+        }
+    }
+    private fun scheduleEditorSave() {
+        autosave?.cancel()
         autosave=viewModelScope.launch {delay(250);flushEditor()}
     }
-    fun togglePreview() {shellState=shellState.copy(preview=!state.preview)}
+
+    private fun clearEditor() {
+        autosave?.cancel()
+        editorInputObserver?.cancel()
+        editorInput=null
+        previewSelection=null
+        editorBaseline=null;savedEditor=null;editorSession++;discardUnchangedEditor=false
+        shellState=shellState.copy(editor=null,preview=false,saveError=null,saving=false)
+    }
+    fun togglePreview() {
+        val input=editorInput?:return
+        if(shellState.preview) {
+            // Removing the text field for preview can collapse its selection on focus loss.
+            previewSelection?.let {range->if(input.selection!=range)input.edit {selection=range}}
+            previewSelection=null
+        } else previewSelection=input.selection
+        shellState=shellState.copy(preview=!shellState.preview)
+    }
     fun format(prefix:String,suffix:String="") {
-        val draft=state.editor?:return
-        val start=draft.cursorStart.coerceIn(0,draft.content.length)
-        val end=draft.cursorEnd.coerceIn(start,draft.content.length)
-        val selected=draft.content.substring(start,end)
-        val content=draft.content.substring(0,start)+prefix+selected+suffix+draft.content.substring(end)
-        updateEditor(TextFieldValue(content,TextRange(start+prefix.length,end+prefix.length)))
+        editorInput?.edit {
+            val previous=selection
+            if(suffix.isNotEmpty())replace(previous.max,previous.max,suffix)
+            replace(previous.min,previous.min,prefix)
+            selection=TextRange(previous.start+prefix.length,previous.end+prefix.length)
+        }
     }
     internal suspend fun cachedEditorTags(accountId: String): List<String> = try {
         repository.tags(accountId, cachedOnly = true).map { it.tag }
@@ -340,37 +387,42 @@ class MemaoViewModel(
     fun addTag(raw:String) {
         val tag=raw.trim().removePrefix("#").replace(Regex("\\s+"),"")
         if(tag.isBlank())return
-        val d=state.editor?:return
-        val end=d.content.length
-        val separator=if(d.content.isBlank()||d.content.endsWith("\n"))"" else "\n"
-        updateEditor(TextFieldValue(d.content+separator+"#"+tag,TextRange(end+separator.length+tag.length+1)))
+        val input=editorInput?:return
+        input.edit {
+            val text=asCharSequence()
+            val separator=if(text.isBlank()||text.endsWith('\n'))"" else "\n"
+            append(separator+"#"+tag)
+            selection=TextRange(length)
+        }
+        if(shellState.preview)previewSelection=input.selection
     }
     private suspend fun flushEditor():Boolean=saveMutex.withLock {flushEditorLocked()}
     private suspend fun flushEditorLocked():Boolean {
-        val d=state.editor?:return true
-        val version=editVersion
+        val d=currentEditor()?:return true
         val session=editorSession
-        fun sameEditor()=editorSession==session&&state.editor?.id==d.id&&state.accountId==d.accountId
+        fun sameEditor()=editorSession==session&&shellState.editor?.id==d.id&&shellState.accountId==d.accountId
+        fun sameSnapshot()=sameEditor()&&currentEditor()==d
         shellState=shellState.copy(saving=true,saveError=null)
         try {
             val persisted=repository.saveDraft(d)
             if(sameEditor()) {
                 savedEditor=persisted
-                shellState=shellState.copy(editor=if(version==editVersion)persisted else state.editor?.copy(revision=persisted.revision,updatedAt=persisted.updatedAt),saveError=null)
+                shellState=shellState.copy(editor=if(sameSnapshot())persisted else
+                    shellState.editor?.copy(revision=persisted.revision,updatedAt=persisted.updatedAt),saveError=null)
             }
             return true
         }catch(e:Exception){
             if(e is CancellationException)throw e
-            if(!sameEditor()||version!=editVersion)return false
+            if(!sameSnapshot())return false
             if(e.message?.contains("正文仍引用附件")==true) {
-                runCatching {repository.getDraft(d.accountId,d.id)}.getOrNull()?.let {previous->
-                    if(sameEditor()&&version==editVersion) {
-                        savedEditor=previous
-                        shellState=shellState.copy(editor=state.editor?.copy(attachments=previous.attachments,revision=previous.revision))
-                    }
+                val previous=runCatching {repository.getDraft(d.accountId,d.id)}.getOrNull()
+                if(!sameSnapshot())return false
+                if(previous!=null) {
+                    savedEditor=previous
+                    shellState=shellState.copy(editor=shellState.editor?.copy(attachments=previous.attachments,revision=previous.revision))
                 }
             }
-            if(sameEditor()&&version==editVersion)shellState=shellState.copy(saveError="本地保存失败，内容仍在当前页面。"+readable(e))
+            shellState=shellState.copy(saveError="本地保存失败，内容仍在当前页面。"+readable(e))
             return false
         }finally {
             if(sameEditor())shellState=shellState.copy(saving=false)
@@ -391,11 +443,10 @@ class MemaoViewModel(
                 // a queued autosave/background flush must not recreate a just-discarded copy.
                 while(true) {
                     if(requestId!=memoRequestId||state.accountId!=accountId)return@withLock false
-                    val version=editVersion
                     if(!flushEditorLocked())return@withLock false
                     if(requestId!=memoRequestId||state.accountId!=accountId)return@withLock false
-                    if(version!=editVersion)continue
-                    val current=state.editor
+                    val current=currentEditor()
+                    if(current!=null&&current!=savedEditor)continue
                     val baseline=editorBaseline
                     if(current!=null&&baseline!=null&&discardUnchangedEditor&&current.hasSameContentAs(baseline)) {
                         try {repository.discardUnchangedEdit(baseline,current)}
@@ -406,10 +457,9 @@ class MemaoViewModel(
                         }
                     }
                     // Text entered during repository IO belongs to the user; save it before leaving.
-                    if(version!=editVersion)continue
+                    if(currentEditor()!=current)continue
                     if(requestId!=memoRequestId||state.accountId!=accountId)return@withLock false
-                    shellState=shellState.copy(editor=null,preview=false,saveError=null)
-                    editorBaseline=null;savedEditor=null;editorSession++;discardUnchangedEditor=false
+                    clearEditor()
                     break
                 }
                 true
@@ -446,17 +496,20 @@ class MemaoViewModel(
                     if(state.accountId==target.first&&state.editor?.id==target.second) {
                         savedEditor=imported
                         shellState=shellState.copy(editor=imported)
-                        editVersion++
                     }
                 }
             }catch(e:Exception){report(e)}
-            finally {shellState=shellState.copy(importing=false)}
+            finally {
+                shellState=shellState.copy(importing=false)
+                val current=currentEditor()
+                if(current!=null&&current!=savedEditor&&shellState.saveError==null)scheduleEditorSave()
+            }
         }
     }
     fun removeAttachment(key:String) {
         val d=state.editor?:return
         shellState=shellState.copy(editor=d.copy(attachments=d.attachments.filterNot {it.id==key}),saveError=null)
-        editVersion++;autosave?.cancel();autosave=viewModelScope.launch {flushEditor()}
+        autosave?.cancel();autosave=viewModelScope.launch {flushEditor()}
     }
     fun send(choice:ConflictChoice?=null) {
         if(state.sending||state.importing)return
@@ -479,14 +532,17 @@ class MemaoViewModel(
                             val latest=runCatching {repository.getDraft(id,draft.id)}.getOrNull()
                             if(latest!=null)savedEditor=latest
                             shellState=shellState.copy(editor=latest?:state.editor,conflict=null,message="已发送，更新的修改仍保留在草稿。")
+                            if(latest!=null)observeEditorInput(latest)
                         } else {
-                            shellState=shellState.copy(editor=null,draftDetail=null,paneOpen=false,conflict=null,message="已发送到服务器")
+                            clearEditor()
+                            shellState=shellState.copy(draftDetail=null,paneOpen=false,conflict=null,message="已发送到服务器")
                         }
                         notes.reloadTags()
                     }
                     is SendResult.Conflict -> shellState=shellState.copy(conflict=result)
                     is SendResult.KeptServer -> {
-                        shellState=shellState.copy(conflict=null,editor=null,draftDetail=null,paneOpen=false,message="已保留服务端版本，本地草稿仍保留。")
+                        clearEditor()
+                        shellState=shellState.copy(conflict=null,draftDetail=null,paneOpen=false,message="已保留服务端版本，本地草稿仍保留。")
                     }
                     is SendResult.Failed -> shellState=shellState.copy(error=result.message)
                     is SendResult.Unknown -> shellState=shellState.copy(error="发送结果尚未确定："+result.message+"。下次手动重试会先核对服务端结果。")
@@ -500,7 +556,7 @@ class MemaoViewModel(
         viewModelScope.launch {
             try {
                 repository.deleteDraft(draft.accountId,draft.id)
-                if(state.editor?.id==draft.id){autosave?.cancel();shellState=shellState.copy(editor=null)}
+                if(state.editor?.id==draft.id)clearEditor()
                 if(state.draftDetail?.id==draft.id)shellState=shellState.copy(draftDetail=null,paneOpen=false)
                 shellState=shellState.copy(message="已删除本地草稿，服务端笔记未改变。")
             }catch(e:Exception){report(e)}
