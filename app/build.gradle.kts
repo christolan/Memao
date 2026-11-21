@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "com.xiaojiwei.memao"
-        minSdk = 34
+        minSdk = 33
         targetSdk = 37
         versionCode = 33
         versionName = "0.1.32"
