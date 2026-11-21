@@ -93,6 +93,7 @@ class LiveMediaAcceptanceTest {
             compose.onNodeWithTag("newMemo", useUnmergedTree = true).performClick()
             waitTag("editorBody")
             compose.runOnIdle { clipboard.setPrimaryClip(ClipData.newUri(context.contentResolver, "Memao generated QA image", uri)) }
+            compose.onNodeWithContentDescription("更多工具").performClick()
             compose.onNodeWithText("粘贴图片").performScrollTo().performClick()
             compose.waitUntil(30_000) {
                 compose.runOnIdle { viewModel().state.editor?.attachments?.singleOrNull()?.filename == filename }

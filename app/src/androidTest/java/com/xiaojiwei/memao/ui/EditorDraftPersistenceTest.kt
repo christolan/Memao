@@ -348,7 +348,8 @@ class EditorDraftPersistenceTest {
         start()
         compose.waitUntil(10_000) { vm.state.tags.any { it.tag == "计划" } }
         openMemoByLongPress()
-        compose.onNodeWithText("标签").performClick()
+        compose.onNodeWithContentDescription("更多工具").performClick()
+        compose.onNodeWithText("标签").performScrollTo().performClick()
         compose.onAllNodesWithText("#日常").assertCountEquals(1)
         compose.onNodeWithText("#计划").assertExists()
         compose.onNodeWithText("#工作").assertDoesNotExist()
@@ -359,7 +360,8 @@ class EditorDraftPersistenceTest {
         compose.onNodeWithText("添加标签").assertDoesNotExist()
         compose.onNodeWithTag("editorBody").assertTextEquals(gateway.memo.content + "\n#计划")
 
-        compose.onNodeWithText("标签").performClick()
+        compose.onNodeWithContentDescription("更多工具").performClick()
+        compose.onNodeWithText("标签").performScrollTo().performClick()
         compose.onNodeWithTag("editorTagInput").performTextReplacement("临时 标签")
         compose.onNodeWithText("已有标签").assertDoesNotExist()
         compose.onNodeWithText("添加").performScrollTo().performClick()
@@ -381,7 +383,8 @@ class EditorDraftPersistenceTest {
         compose.onNodeWithTag("drawerToggle").performClick()
         compose.onNodeWithTag("navigationDrawer").assertIsDisplayed()
         compose.onNodeWithTag("newMemo").performClick()
-        compose.onNodeWithText("标签").performClick()
+        compose.onNodeWithContentDescription("更多工具").performClick()
+        compose.onNodeWithText("标签").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("#本机缓存标签").fetchSemanticsNodes().size == 1 }
         compose.onNodeWithText("#其他账号标签").assertDoesNotExist()
         compose.onNodeWithText("#本机缓存标签").performClick()

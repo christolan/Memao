@@ -3,6 +3,7 @@ package com.xiaojiwei.memao.ui
 import android.content.Context
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.mutableStateOf
@@ -19,6 +20,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -35,6 +38,7 @@ import com.xiaojiwei.memao.ui.theme.LocalMemaoColors
 import com.xiaojiwei.memao.ui.theme.MemaoTheme
 import java.io.File
 import java.util.UUID
+import kotlin.math.abs
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -157,12 +161,40 @@ class LucideUiTest {
         }
     }
 
-    @Test fun markdownIconShortcutsStillWrapSelectionAndNeverPublish() {
+    @Test fun editorToolbarFoldsToolsWithoutMovingTheBarAndShortcutsStillFormatSelection() {
         val gateway = FixtureGateway()
         val vm = createViewModel(gateway)
+        compose.runOnUiThread { compose.activity.enableEdgeToEdge() }
         compose.setContent { MemaoTheme { EditorPage(vm, AudioState(), { _, _ -> }) } }
         compose.waitUntil(10_000) { vm.state.accountId != null }
-        compose.runOnIdle { vm.openDraft(vm.repository.newDraft(vm.state.accountId!!)) }
+        compose.runOnIdle { vm.openDraft(vm.repository.newDraft(vm.state.accountId!!), newEditor = true) }
+        fun keyboardHeight() = compose.runOnIdle {
+            ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+                ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+        }
+        val more = compose.onNodeWithContentDescription("更多工具")
+        val collapse = compose.onNodeWithContentDescription("收起更多工具")
+        val panel = compose.onNodeWithTag("editorMoreTools")
+        val toolbar = compose.onNodeWithTag("editorToolbar")
+        compose.waitUntil(10_000) {
+            val imeHeight = keyboardHeight()
+            val rootBottom = compose.onRoot().fetchSemanticsNode().boundsInRoot.bottom
+            val toolbarBottom = toolbar.fetchSemanticsNode().boundsInRoot.bottom
+            imeHeight > 0 && abs(rootBottom - toolbarBottom - imeHeight) <= 1f
+        }
+        compose.onNodeWithText("私密笔记").assertDoesNotExist()
+        compose.onNodeWithContentDescription("添加图片").assertIsDisplayed().assertHasClickAction()
+        compose.onNodeWithText("粗体").assertDoesNotExist()
+        val initialKeyboardHeight = keyboardHeight()
+        val toolbarBounds = toolbar.fetchSemanticsNode().boundsInRoot
+        more.performClick()
+        panel.assertIsDisplayed()
+        compose.onNodeWithTag("editorBody").assertIsFocused()
+        assertEquals(initialKeyboardHeight, keyboardHeight())
+        assertEquals(toolbarBounds, toolbar.fetchSemanticsNode().boundsInRoot)
+        saveScreenshot("editor-more-tools.png")
+        collapse.performClick()
+        panel.assertDoesNotExist()
         val examples = listOf(
             "标题" to "# 文字", "粗体" to "**文字**", "斜体" to "*文字*", "无序列表" to "- 文字",
             "有序列表" to "1. 文字", "引用" to "> 文字", "链接" to "[文字](https://)", "待办列表" to "- [ ] 文字",
@@ -174,12 +206,29 @@ class LucideUiTest {
                     selection = TextRange(0, 2)
                 }
             }
-            compose.onNodeWithContentDescription(label).performScrollTo()
-                .assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp).performClick()
+            if (label == "标题" || label == "无序列表") {
+                compose.onNodeWithContentDescription(label)
+                    .assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp).performClick()
+            } else {
+                more.performClick()
+                compose.onNodeWithText(label).performScrollTo().performClick()
+                panel.assertDoesNotExist()
+            }
             compose.onNodeWithTag("editorBody").assert(
                 SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(expected)),
             )
         }
+        compose.onNodeWithText("预览").performClick()
+        compose.onNodeWithContentDescription("标题").assertDoesNotExist()
+        compose.onNodeWithContentDescription("无序列表").assertDoesNotExist()
+        compose.onNodeWithContentDescription("添加图片").assertIsDisplayed()
+        more.performClick()
+        compose.onNodeWithText("音频").assertIsDisplayed()
+        compose.onNodeWithText("粘贴图片").assertIsDisplayed()
+        compose.onNodeWithText("标签").assertIsDisplayed()
+        compose.onNodeWithText("粗体").assertDoesNotExist()
+        compose.onNodeWithText("编辑").performClick()
+        panel.assertDoesNotExist()
         compose.runOnIdle { assertEquals(0, gateway.publishes) }
         saveScreenshot("lucide-editor.png")
     }
