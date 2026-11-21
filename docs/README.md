@@ -10,6 +10,7 @@
 | [首页 UI 方案对比](home-ui-design.md) | 留白极简方向、桌面品牌图标、列表、编辑器、抽屉和折叠屏设计 |
 | [配套页面与异常状态设计](supporting-ui-design.md) | 连接、账号、草稿、归档、设置、离线及冲突交互 |
 | [Lucide 图标优化落地方案](lucide-icons.md) | 图标映射、Android 接入、验收截图、离线画廊和素材包 |
+| [设计原则](design-principle.md) | UI 与 UX 原则，必须严格遵守 |
 
 ## 版本与验收状态
 
