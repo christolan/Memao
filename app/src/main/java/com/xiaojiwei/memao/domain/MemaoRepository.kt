@@ -530,17 +530,28 @@ class MemaoRepository(
                 DomainRules.validateAttachmentRemoval(value.baseMemo, value.content,
                     value.attachments.mapNotNull { it.original?.name }.toSet())
                 val previousAttempt = dao.attempt(accountId, draftId)?.let { ModelCodec.draft(it.payload) }
-                if (previousAttempt != null && previousAttempt.sendState in setOf(SendState.SUBMITTING, SendState.VERIFYING, SendState.UNKNOWN)) {
-                    val checked = readOrMissing(owner, previousAttempt.memoName ?: "memos/${previousAttempt.createUid}")
-                    if (checked != null && submittedMatches(checked, previousAttempt)) {
-                        return@withLock acknowledge(owner, previousAttempt, checked)
+                val copyAttempt = previousAttempt?.takeIf { !value.isNew && it.isNew }
+                val unconfirmedAttempt = previousAttempt?.takeIf {
+                    it.sendState in setOf(SendState.SUBMITTING, SendState.VERIFYING, SendState.UNKNOWN)
+                }
+                if (unconfirmedAttempt != null) {
+                    val checked = readOrMissing(owner, unconfirmedAttempt.memoName ?: "memos/${unconfirmedAttempt.createUid}")
+                    if (checked != null && submittedMatches(checked, unconfirmedAttempt)) {
+                        return@withLock acknowledge(owner, unconfirmedAttempt, checked)
                     }
-                    if (previousAttempt.isNew && checked != null) {
+                    if (unconfirmedAttempt.isNew && checked != null) {
                         return@withLock SendResult.Unknown("相同编号的笔记已存在但内容不一致，请核对服务端；草稿已保留")
                     }
                 }
+                val pendingCopy = copyAttempt?.takeIf { it === unconfirmedAttempt }
+                if (pendingCopy != null && choice == ConflictChoice.OVERWRITE) {
+                    return@withLock SendResult.Unknown("上次另存的结果尚未确认，请先重试另存")
+                }
+                val retryCopy = pendingCopy?.takeIf { choice == ConflictChoice.SAVE_AS_NEW }
                 val originalName = value.memoName
-                if (originalName != null) {
+                if (retryCopy != null) {
+                    value = retryCopy
+                } else if (originalName != null) {
                     val server = readOrMissing(owner, originalName)
                     checkedServer = server
                     if (choice == ConflictChoice.KEEP_SERVER) {
@@ -556,37 +567,40 @@ class MemaoRepository(
                         return@withLock SendResult.KeptServer(server, value.copy(sendState = SendState.SAVED, error = null))
                     }
                     val changed = server == null || value.baseMemo == null || !DomainRules.sameBase(value.baseMemo, server)
-                    if (changed && choice == null) {
+                    if ((changed || copyAttempt != null) && choice == null) {
                         updateDraftState(value, SendState.CONFLICT, "服务端内容已变化")
                         return@withLock SendResult.Conflict(server, value.copy(sendState = SendState.CONFLICT))
                     }
                     if (choice == ConflictChoice.SAVE_AS_NEW) {
-                        value = value.copy(memoName = null, createUid = newUid(), baseMemo = null,
-                            attachments = value.attachments.map { it.copy(uploadUid = newUid(), uploaded = null) })
-                        localLock.withLock { dao.putDraft(draftRecord(value)) }
+                        val previousUploads = copyAttempt?.attachments.orEmpty().associateBy { it.id }
+                        value = value.copy(
+                            memoName = null, createUid = copyAttempt?.createUid ?: newUid(), baseMemo = null,
+                            attachments = value.attachments.map { item ->
+                                val previous = previousUploads[item.id]
+                                item.copy(uploadUid = previous?.uploadUid ?: newUid(), uploaded = previous?.uploaded)
+                            },
+                        )
                     } else if (server == null) {
                         return@withLock SendResult.Failed("原笔记已被删除，请选择另存为新笔记")
                     }
                 }
                 snapshot = value
-                saveAttempt(value, SendState.CHECKING)
-                value.attachments.forEach { item -> require(File(item.localPath).isFile && File(item.localPath).canRead()) { "草稿附件缺失，请重新添加后发送" } }
-                var content = value.content
-                val uploaded = mutableListOf<DraftAttachment>()
-                for (item in value.attachments) {
-                    // Overwrite restores an attachment deleted by a web edit from the
-                    // protected local bytes, instead of submitting a now-invalid old name.
-                    val existing = if (!value.isNew) item.original?.takeIf { original -> checkedServer?.attachments?.any { it.name == original.name } == true } else null
-                    val remote = existing ?: item.uploaded ?: gateway.upload(owner, UploadFile(File(item.localPath), item.filename, item.type, item.uploadUid))
-                    if (item.original != null && item.original.name != remote.name) content = DomainRules.rewriteAttachmentReference(content, item.original, remote)
-                    uploaded += item.copy(uploaded = if (existing == null) remote else null)
-                    value = value.copy(content = content, attachments = uploaded + value.attachments.drop(uploaded.size))
-                    snapshot = value
-                    saveAttempt(value, SendState.UPLOADING)
-                    mergeUploaded(value)
+                if (retryCopy == null) {
+                    saveAttempt(value, SendState.CHECKING)
+                    value.attachments.forEach { item -> require(File(item.localPath).isFile && File(item.localPath).canRead()) { "草稿附件缺失，请重新添加后发送" } }
+                    var content = value.content
+                    val uploaded = mutableListOf<DraftAttachment>()
+                    for (item in value.attachments) {
+                        val existing = if (!value.isNew) item.original?.takeIf { original -> checkedServer?.attachments?.any { it.name == original.name } == true } else null
+                        val remote = existing ?: item.uploaded ?: gateway.upload(owner, UploadFile(File(item.localPath), item.filename, item.type, item.uploadUid))
+                        if (item.original != null && item.original.name != remote.name) content = DomainRules.rewriteAttachmentReference(content, item.original, remote)
+                        uploaded += item.copy(uploaded = if (existing == null) remote else null)
+                        value = value.copy(content = content, attachments = uploaded + value.attachments.drop(uploaded.size))
+                        snapshot = value
+                        saveAttempt(value, SendState.UPLOADING)
+                        if (originalName == value.memoName) mergeUploaded(value)
+                    }
                 }
-                value = value.copy(content = content, attachments = uploaded)
-                snapshot = value
                 val resources = finalAttachments(value)
                 // With already-bound attachments the server may return 400 before checking a
                 // duplicate memo UID. Always read our stable UID before a new-create attempt.
@@ -613,6 +627,7 @@ class MemaoRepository(
                             catch (_: Exception) { null }
                             if (prior != null && submittedMatches(prior, value)) return@withLock acknowledge(owner, value, prior)
                         }
+                        if (retryCopy == null && originalName != null && value.isNew) saveAttempt(value, SendState.FAILED)
                         throw error
                     }
                     saveAttempt(value, SendState.UNKNOWN)

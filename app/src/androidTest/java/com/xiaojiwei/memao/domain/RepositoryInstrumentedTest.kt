@@ -186,6 +186,87 @@ class RepositoryInstrumentedTest {
         assertEquals(1, server.uploadCalls)
     }
 
+    @Test fun failedCopyUploadKeepsOriginalDraftEditableAndRetriesWithTheSameUploads() = runBlocking {
+        val account = login()
+        val first = server.attachment("first", byteArrayOf(1))
+        val second = server.attachment("second", byteArrayOf(2))
+        val memo = server.memo(account, "source", "原文", listOf(first, second))
+        val draft = repository.saveDraft(repository.prepareEdit(account.id, memo.name).copy(content = "改稿"))
+        server.memos[memo.name] = memo.copy(content = "网页修改")
+        assertTrue(repository.send(account.id, draft.id) is SendResult.Conflict)
+
+        server.failedUploadFilename = second.filename
+        assertTrue(repository.resolveConflict(account.id, draft.id, ConflictChoice.SAVE_AS_NEW) is SendResult.Failed)
+        assertEquals(0, server.createCalls)
+        val revised = repository.saveDraft(draft.copy(content = "失败后继续编辑"))
+        assertEquals(memo.name, revised.memoName)
+        assertEquals(draft.attachments, revised.attachments)
+
+        repository.close()
+        openRepository()
+        assertEquals(revised, repository.getDraft(account.id, draft.id))
+        assertTrue(repository.send(account.id, draft.id) is SendResult.Conflict)
+        server.failedUploadFilename = null
+        val sent = repository.resolveConflict(account.id, draft.id, ConflictChoice.SAVE_AS_NEW) as SendResult.Sent
+        assertEquals(revised.content, sent.memo.content)
+        assertEquals("网页修改", server.memos[memo.name]!!.content)
+        assertEquals(2, sent.memo.attachments.size)
+        assertEquals(3, server.uploadCalls)
+        assertEquals(1, server.createCalls)
+        assertTrue(repository.observeDrafts(account.id).first().isEmpty())
+    }
+
+    @Test fun unconfirmedCopyIsVerifiedAfterReopeningAndKeepsNewerEdits() = runBlocking {
+        val account = login()
+        val memo = server.memo(account, "source", "原文")
+        val draft = repository.saveDraft(repository.prepareEdit(account.id, memo.name).copy(content = "改稿"))
+        server.memos[memo.name] = memo.copy(content = "网页修改")
+        assertTrue(repository.send(account.id, draft.id) is SendResult.Conflict)
+
+        server.failAfterCreate = true
+        server.failVerification = true
+        assertTrue(repository.resolveConflict(account.id, draft.id, ConflictChoice.SAVE_AS_NEW) is SendResult.Unknown)
+        val revised = repository.saveDraft(draft.copy(content = "另存后继续编辑"))
+        assertEquals(memo.name, revised.memoName)
+        repository.close()
+        openRepository()
+
+        server.failAfterCreate = false
+        server.failVerification = false
+        val sent = repository.send(account.id, draft.id) as SendResult.Sent
+        assertTrue(sent.newerDraftKept)
+        assertEquals(draft.content, sent.memo.content)
+        assertEquals("网页修改", server.memos[memo.name]!!.content)
+        assertEquals(1, server.createCalls)
+        val kept = repository.getDraft(account.id, draft.id)
+        assertEquals(revised.content, kept.content)
+        assertEquals(sent.memo.name, kept.memoName)
+    }
+
+    @Test fun retryOfAnUnconfirmedCopyUsesTheOriginalSubmissionWhenItIsNotYetOnTheServer() = runBlocking {
+        val account = login()
+        val memo = server.memo(account, "source", "原文")
+        val draft = repository.saveDraft(repository.prepareEdit(account.id, memo.name).copy(content = "改稿"))
+        server.memos[memo.name] = memo.copy(content = "网页修改")
+        assertTrue(repository.send(account.id, draft.id) is SendResult.Conflict)
+
+        server.failAfterCreate = true
+        server.failVerification = true
+        assertTrue(repository.resolveConflict(account.id, draft.id, ConflictChoice.SAVE_AS_NEW) is SendResult.Unknown)
+        val pendingName = server.memos.keys.single { it != memo.name }
+        server.memos.remove(pendingName)
+        val revised = repository.saveDraft(draft.copy(content = "另存后继续编辑"))
+
+        server.failAfterCreate = false
+        server.failVerification = false
+        assertTrue(repository.send(account.id, draft.id) is SendResult.Conflict)
+        val sent = repository.resolveConflict(account.id, draft.id, ConflictChoice.SAVE_AS_NEW) as SendResult.Sent
+        assertEquals(pendingName, sent.memo.name)
+        assertEquals(draft.content, sent.memo.content)
+        assertEquals(revised.content, repository.getDraft(account.id, draft.id).content)
+        assertEquals("网页修改", server.memos[memo.name]!!.content)
+    }
+
     @Test fun editingDuringSlowSendKeepsNewerRevisionInsteadOfClearingIt() = runBlocking {
         val account = login()
         val first = repository.saveDraft(repository.newDraft(account.id).copy(content = "第一版"))
@@ -281,6 +362,7 @@ class RepositoryInstrumentedTest {
         var sparseDownloads = false
         var failAfterCreate = false
         var failVerification = false
+        var failedUploadFilename: String? = null
         var createCalls = 0
         var updateCalls = 0
         var uploadCalls = 0
@@ -328,6 +410,7 @@ class RepositoryInstrumentedTest {
         override suspend fun delete(account: Account, name: String) { online(); deleteCalls++; memos.remove(name) }
         override suspend fun upload(account: Account, request: UploadFile): Attachment {
             online(); uploadCalls++
+            if (request.filename == failedUploadFilename) throw IOException("selected fake upload failure")
             val value = Attachment("attachments/${request.uid}", request.filename, request.type, request.file.length())
             files[value.name] = request.file.readBytes()
             return value
