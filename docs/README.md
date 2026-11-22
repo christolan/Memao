@@ -7,7 +7,6 @@
 | [Android 客户端需求与落地规划](planning.md) | 产品范围、已确认需求、交互默认方案、待定事项和变更记录 |
 | [首版开发准备与接口核对](development-and-acceptance.md) | Memos 0.31.0 接口、技术方案、实施里程碑、构建与验收历史 |
 | [开发问题记录](development-issues.md) | 问题复现、修复、复验及设备验证缺口 |
-| [设计原则](design-principle.md) | UI 与 UX 原则，必须严格遵守 |
 
 ## 版本与验收状态
 
