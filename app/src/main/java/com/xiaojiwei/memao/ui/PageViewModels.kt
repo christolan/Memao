@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.xiaojiwei.memao.domain.DomainRules
 import com.xiaojiwei.memao.domain.MemaoRepository
 import com.xiaojiwei.memao.model.Draft
 import com.xiaojiwei.memao.model.Memo
@@ -71,6 +72,7 @@ data class MemoListState(
     val tag: String? = null,
     val untagged: Boolean = false,
     val tags: List<TagCount> = emptyList(),
+    val memoToReveal: String? = null,
 )
 
 abstract class MemoListViewModel(
@@ -79,7 +81,7 @@ abstract class MemoListViewModel(
     val page: UiPage,
 ) : ListPageViewModel(saved) {
     var state by mutableStateOf(MemoListState())
-        private set
+        protected set
     // Reading state belongs to this page session: it survives navigation and resizing,
     // but a new app session or account switch starts with every memo collapsed.
     val expandedMemos = mutableStateMapOf<String, Boolean>()
@@ -146,7 +148,7 @@ abstract class MemoListViewModel(
         generation++
         request?.cancel(); observed?.cancel()
         state = state.copy(keyword = keyword, tag = tag, untagged = untagged, memos = emptyList(), cacheReady = false, loading = false,
-            refreshing = false, hasMore = false, error = null)
+            refreshing = false, hasMore = false, error = null, memoToReveal = null)
         if (page == UiPage.NOTES) {
             accountId?.let { saved["tag:$it"] = tag; saved["untagged:$it"] = untagged }
         }
@@ -205,12 +207,21 @@ abstract class MemoListViewModel(
         }
     }
 
+    fun completeMemoReveal(name: String) {
+        if (state.memoToReveal == name) state = state.copy(memoToReveal = null)
+    }
+
     fun dismissError() { state = state.copy(error = null) }
     fun onNetworkAvailable() { state = state.copy(offline = false) }
 }
 
 class NotesViewModel(repository: MemaoRepository, saved: SavedStateHandle) :
-    MemoListViewModel(repository, saved, UiPage.NOTES)
+    MemoListViewModel(repository, saved, UiPage.NOTES) {
+    fun revealPublishedMemo(memo: Memo) {
+        if (!DomainRules.matches(memo, query)) setTag(null)
+        state = state.copy(memoToReveal = memo.name)
+    }
+}
 
 class ArchiveViewModel(repository: MemaoRepository, saved: SavedStateHandle) :
     MemoListViewModel(repository, saved, UiPage.ARCHIVE)

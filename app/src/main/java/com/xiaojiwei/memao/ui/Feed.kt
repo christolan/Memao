@@ -110,6 +110,17 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
     val horizontalPadding=if(notes||compact)20.dp else 24.dp
     key(page.accountId,page.scrollKey) {
         TrackPageScroll(page)
+        s.memoToReveal?.let { name ->
+            val index = s.memos.indexOfFirst { it.name == name }
+            if (index >= 0) {
+                val listState = page.listState
+                val itemIndex = index + if (shared.error == null) 0 else 1
+                LaunchedEffect(listState, name, itemIndex) {
+                    listState.scrollToItem(itemIndex)
+                    page.completeMemoReveal(name)
+                }
+            }
+        }
         val refreshState=rememberPullToRefreshState()
         Column(Modifier.fillMaxSize().testTag("feedPage")) {
             MmTopBar(page.page.title,filterTag=if(notes)s.tag else null,filterUntagged=notes&&s.untagged,onClearTag={vm.setTag(null)}) {

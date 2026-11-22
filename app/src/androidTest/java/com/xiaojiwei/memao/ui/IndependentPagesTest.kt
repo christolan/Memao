@@ -279,20 +279,46 @@ class IndependentPagesTest {
         val before = gateway.callCount()
         compose.onNodeWithTag("sendMemo").performClick()
         val sentName = "memos/${draft.createUid}"
-        compose.waitUntil(10_000) { !vm.state.sending && vm.notes.state.memos.any { it.name == sentName } && vm.state.drafts.none { it.id == draft.id } }
+        compose.waitUntil(10_000) {
+            !vm.state.sending && vm.state.page == UiPage.NOTES &&
+                vm.notes.state.memos.any { it.name == sentName } && vm.state.drafts.none { it.id == draft.id }
+        }
+        compose.onNodeWithTag("memo:$sentName").assertIsDisplayed()
+        compose.onNodeWithText("已发送到服务器").assertIsDisplayed()
         compose.runOnIdle {
             assertTrue(vm.notes.state.memos.map { it.name }.containsAll(originalNames))
             assertEquals(33, vm.notes.state.memos.size)
             assertFalse(vm.notes.state.hasMore)
             assertSame(list, vm.notes.listState)
-        }
-        navigate(vm, UiPage.NOTES)
-        compose.runOnIdle {
-            assertEquals(33, vm.state.memos.size)
-            assertTrue(vm.state.memos.any { it.name == sentName })
-            assertFalse(vm.state.hasMore)
+            assertEquals(sentName, list.layoutInfo.visibleItemsInfo.first().key)
         }
         assertEquals("Sending must not reset an already loaded list through refresh", before, gateway.callCount())
+        assertEquals(1, gateway.publishes)
+    }
+
+    @Test fun publishingRevealsTheNewMemoEvenWithAnExcludingFilter() {
+        val gateway = PagesGateway(pageSize = 100)
+        val vm = start(gateway)
+        awaitNotes(vm, 32)
+        compose.runOnIdle { vm.setTag("日常") }
+        awaitNotes(vm, 32)
+        scrollTo(10)
+        compose.onNodeWithTag("clearTagFilter").assertIsDisplayed()
+
+        compose.onNodeWithTag("drawerToggle").performClick()
+        compose.onNodeWithTag("newMemo").performClick()
+        val content = "第一账号 一条未加标签的新笔记"
+        compose.onNodeWithTag("editorBody").performTextReplacement(content)
+        val sentName = compose.runOnIdle { "memos/${vm.state.editor!!.createUid}" }
+        compose.onNodeWithTag("sendMemo").performClick()
+
+        compose.waitUntil(10_000) {
+            !vm.state.sending && vm.state.editor == null && vm.state.page == UiPage.NOTES &&
+                vm.notes.state.memos.any { it.name == sentName }
+        }
+        compose.onNodeWithTag("clearTagFilter").assertDoesNotExist()
+        compose.onNodeWithTag("memo:$sentName").assertIsDisplayed()
+        compose.onNodeWithText("已发送到服务器").assertIsDisplayed()
         assertEquals(1, gateway.publishes)
     }
 

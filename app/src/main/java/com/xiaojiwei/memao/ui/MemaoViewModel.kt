@@ -535,7 +535,15 @@ class MemaoViewModel(
                             if(latest!=null)observeEditorInput(latest)
                         } else {
                             clearEditor()
-                            shellState=shellState.copy(draftDetail=null,paneOpen=false,conflict=null,message="已发送到服务器")
+                            val published = result.memo.name != draft.memoName && !result.memo.archived
+                            if (published) {
+                                if (shellState.page == UiPage.SEARCH) search.close()
+                                notes.revealPublishedMemo(result.memo)
+                            }
+                            shellState=shellState.copy(
+                                page=if(published)UiPage.NOTES else shellState.page,
+                                draftDetail=null,paneOpen=false,conflict=null,message="已发送到服务器",
+                            )
                         }
                         notes.reloadTags()
                     }
