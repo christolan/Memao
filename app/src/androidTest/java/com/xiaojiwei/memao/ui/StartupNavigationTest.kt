@@ -160,7 +160,8 @@ class StartupNavigationTest {
     }
 
     @Test fun lateEditResponsesCannotReopenAfterBackOrNavigation() {
-        val gateway = StartupGateway()
+        val gateway = StartupGateway(Memo("memos/previous", "上次阅读的记录", "users/1",
+            attachments = listOf(Attachment("attachments/previous", "previous.wav", "audio/wav"))))
         val (repo, account) = fixture(gateway)
         mount()
         val vm = replaceViewModel(repo)
@@ -203,7 +204,7 @@ class StartupNavigationTest {
         compose.onNodeWithTag("memo:${gateway.memo.name}").performTouchInput { longClick(Offset(centerX, 12f)) }
         compose.waitUntil(10_000) { vm.state.editor != null }
         compose.onNodeWithTag("editorBody").assertTextEquals(content)
-        assertEquals(1, gateway.getCalls)
+        assertEquals(0, gateway.getCalls)
         saveScreenshot("memo-long-press-editor.png")
         assertEquals(0, gateway.publishes)
     }
@@ -431,7 +432,10 @@ class StartupNavigationTest {
         compose.onNodeWithTag("memoActions:${gateway.memo.name}").performClick()
         compose.onNodeWithText("删除笔记").performClick()
         compose.onNodeWithText("删除笔记").performClick()
-        compose.waitUntil(10_000) { gateway.deletes == 1 && vm.state.memos.isEmpty() }
+        compose.waitUntil(10_000) { vm.state.memos.isEmpty() }
+        assertEquals(0, gateway.deletes)
+        runBlocking { vm.repository.synchronize(retry = true) }
+        assertEquals(1, gateway.deletes)
         assertEquals(0, gateway.publishes)
     }
 
@@ -529,15 +533,19 @@ class StartupNavigationTest {
         override suspend fun tags(account: Account) = emptyList<TagCount>()
         override suspend fun get(account: Account, name: String): Memo {
             getCalls++
-            val response = pending ?: return memo
-            // Model an already-started request completing after cancellation/navigation.
-            return withContext(NonCancellable) { response.started.complete(Unit); response.result.await() }
+            if (deletes != 0) throw MemosException("Missing fixture memo", statusCode = 404)
+            return memo
         }
         override suspend fun create(account: Account, request: CreateMemo): Memo { publishes++; error("Must not publish") }
         override suspend fun update(account: Account, request: UpdateMemo): Memo { publishes++; error("Must not publish") }
         override suspend fun delete(account: Account, name: String) { deletes++ }
         override suspend fun upload(account: Account, request: UploadFile): Attachment = error("Must not upload")
         override suspend fun download(account: Account, attachment: Attachment, destination: File) {
+            pending?.let { response -> withContext(NonCancellable) { response.started.complete(Unit); response.result.await() } }
+            if (attachment.isAudio) {
+                destination.writeBytes(byteArrayOf(1, 2, 3))
+                return
+            }
             val bitmap = Bitmap.createBitmap(attachment.width, attachment.height, Bitmap.Config.ARGB_8888)
             try {
                 bitmap.eraseColor(0xffa04f58.toInt() + (attachment.name.hashCode() and 0x003f3f3f))

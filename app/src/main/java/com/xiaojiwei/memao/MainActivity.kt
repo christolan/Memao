@@ -14,9 +14,6 @@ import androidx.lifecycle.AbstractSavedStateViewModelFactory
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import com.xiaojiwei.memao.data.local.TokenVault
-import com.xiaojiwei.memao.data.remote.OkHttpMemosGateway
-import com.xiaojiwei.memao.domain.MemaoRepository
 import com.xiaojiwei.memao.ui.MemaoApp
 import com.xiaojiwei.memao.ui.MemaoViewModel
 import kotlinx.coroutines.Dispatchers
@@ -31,11 +28,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val factory=object:AbstractSavedStateViewModelFactory(this,savedInstanceState) {
             override fun <T:ViewModel> create(key:String,modelClass:Class<T>,handle:SavedStateHandle):T {
-                val vault=TokenVault(applicationContext)
-                val gateway=OkHttpMemosGateway(vault::get)
-                val repository=MemaoRepository(applicationContext,gateway,vault)
+                val repository=(application as MemaoApplication).repository
                 @Suppress("UNCHECKED_CAST")
-                return MemaoViewModel(repository,applicationContext,handle) as T
+                return MemaoViewModel(repository,applicationContext,handle,ownsRepository=false) as T
             }
         }
         val vm=ViewModelProvider(this,factory)[MemaoViewModel::class.java]

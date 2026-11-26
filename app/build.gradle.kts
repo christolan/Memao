@@ -14,8 +14,8 @@ android {
         applicationId = "com.xiaojiwei.memao"
         minSdk = 33
         targetSdk = 37
-        versionCode = 35
-        versionName = "0.2.1"
+        versionCode = 36
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -83,6 +83,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation("androidx.work:work-runtime:2.11.0")
     ksp(libs.androidx.room.compiler)
     implementation(libs.okhttp)
     implementation(libs.coil.compose)

@@ -25,7 +25,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 
-enum class UiPage(val title:String) { NOTES("笔记"), SEARCH("搜索"), DRAFTS("草稿"), ARCHIVE("归档"), SETTINGS("设置"), ACCOUNTS("服务器账号"), LOGIN("连接服务器") }
+enum class UiPage(val title:String) { NOTES("笔记"), SEARCH("搜索"), DRAFTS("草稿"), ARCHIVE("归档"), SETTINGS("设置"), SYNC("同步管理"), ACCOUNTS("服务器账号"), LOGIN("连接服务器") }
 
 data class MemaoUiState(
     val accounts:List<Account> = emptyList(), val accountId:String? = null,
@@ -38,7 +38,7 @@ data class MemaoUiState(
     val offline:Boolean = false,val error:String? = null,val message:String? = null,
     val saveError:String? = null,val saving:Boolean = false,val preparingMemo:String? = null,
     val files:Map<String,File> = emptyMap(),val loadingFiles:Set<String> = emptySet(),
-    val conflict:SendResult.Conflict? = null,val cache:CacheReport? = null,
+    val cache:CacheReport? = null,
     val cacheLoading:Boolean = false,val cacheClearing:Boolean = false,
     val cacheReadError:String? = null,val cacheClearError:String? = null,
     val loginError:String? = null,val pendingAuthentication:Account? = null,
@@ -48,7 +48,7 @@ data class MemaoUiState(
 }
 
 class MemaoViewModel(
-    val repository:MemaoRepository, context:Context, private val saved:SavedStateHandle,
+    val repository:MemaoRepository, context:Context, private val saved:SavedStateHandle, private val ownsRepository:Boolean=true,
 ) : ViewModel() {
     internal val appUpdate by lazy { AppUpdate.get(context.applicationContext) }
     private var shellState by mutableStateOf(MemaoUiState())
@@ -127,6 +127,7 @@ class MemaoViewModel(
         override fun onAvailable(network:Network){viewModelScope.launch {
             shellState=shellState.copy(offline=false)
             notes.onNetworkAvailable();search.onNetworkAvailable();archive.onNetworkAvailable()
+            repository.requestSync()
         }}
         override fun onLost(network:Network){viewModelScope.launch {shellState=shellState.copy(offline=connection.activeNetwork==null)}}
     }
@@ -147,7 +148,7 @@ class MemaoViewModel(
                     audio.stop()
                     mediaJobs.values.forEach {it.cancel()};mediaJobs.clear()
                     shellState=shellState.copy(
-                        accountId=id,editor=null,draftDetail=null,conflict=null,
+                        accountId=id,editor=null,draftDetail=null,
                         memos=emptyList(),drafts=emptyList(),tags=emptyList(),cache=null,
                         hasMore=false,loading=false,refreshing=false,paneOpen=false,busy=false,sending=false,importing=false,saving=false,
                         files=emptyMap(),loadingFiles=emptySet(),error=null,saveError=null,message=null,
@@ -172,10 +173,11 @@ class MemaoViewModel(
                 flushEditorOrThrow()
                 val previousAccount=state.accountId
                 val account=repository.connect(server,token)
+                repository.requestSync()
                 cancelMemoRequest()
                 clearEditor()
                 shellState=shellState.copy(pendingAuthentication=null,page=UiPage.NOTES,tag=null,error=null,loginError=null,
-                    editor=null,draftDetail=null,paneOpen=false,conflict=null)
+                    editor=null,draftDetail=null,paneOpen=false)
                 if(account.id==previousAccount&&account.id==state.accountId)notes.resetFiltersAndRefresh()
             } catch(e:Exception) {if(e is CancellationException)throw e;shellState=shellState.copy(loginError=readable(e))}
             finally {shellState=shellState.copy(busy=false)}
@@ -193,7 +195,7 @@ class MemaoViewModel(
         }
         leaveEditor {
             if(shellState.page==UiPage.SEARCH)search.close()
-            shellState=shellState.copy(page=page,paneOpen=false,draftDetail=null,error=null,conflict=null,loading=false,refreshing=false)
+            shellState=shellState.copy(page=page,paneOpen=false,draftDetail=null,error=null,message=null,loading=false,refreshing=false)
             currentList?.ensureLoaded()
         }
     }
@@ -202,7 +204,7 @@ class MemaoViewModel(
         val id=shellState.accountId?:return
         leaveEditor {
             search.open(id,notes.query)
-            shellState=shellState.copy(page=UiPage.SEARCH,paneOpen=false,draftDetail=null,error=null,conflict=null)
+            shellState=shellState.copy(page=UiPage.SEARCH,paneOpen=false,draftDetail=null,error=null)
         }
     }
     fun closeSearch() {
@@ -301,7 +303,7 @@ class MemaoViewModel(
         memoLoadJob=null
         shellState=shellState.copy(preparingMemo=null)
     }
-    fun showDraft(draft:Draft){leaveEditor {shellState=shellState.copy(draftDetail=draft,paneOpen=true,conflict=null)}}
+    fun showDraft(draft:Draft){leaveEditor {shellState=shellState.copy(draftDetail=draft,paneOpen=true)}}
     fun openDraft(draft:Draft,newEditor:Boolean=false) {
         cancelMemoRequest()
         autosave?.cancel()
@@ -470,10 +472,9 @@ class MemaoViewModel(
     fun back() {
         val preparing=shellState.preparingMemo!=null
         cancelMemoRequest()
-        if(state.editor!=null)leaveEditor {shellState=shellState.copy(paneOpen=false,draftDetail=null,conflict=null)}
-        else if(state.conflict!=null)shellState=shellState.copy(conflict=null)
+        if(state.editor!=null)leaveEditor {shellState=shellState.copy(paneOpen=false,draftDetail=null)}
         else if(state.page==UiPage.SEARCH) {if(!preparing)closeSearch()}
-        else if(state.page==UiPage.LOGIN||state.page==UiPage.ACCOUNTS)navigate(if(state.accountId==null)UiPage.LOGIN else UiPage.SETTINGS)
+        else if(state.page==UiPage.LOGIN||state.page==UiPage.ACCOUNTS||state.page==UiPage.SYNC)navigate(if(state.accountId==null)UiPage.LOGIN else UiPage.SETTINGS)
         else shellState=shellState.copy(paneOpen=false,draftDetail=null)
     }
     suspend fun prepareAttachmentImport():Boolean {
@@ -511,73 +512,51 @@ class MemaoViewModel(
         shellState=shellState.copy(editor=d.copy(attachments=d.attachments.filterNot {it.id==key}),saveError=null)
         autosave?.cancel();autosave=viewModelScope.launch {flushEditor()}
     }
-    fun send(choice:ConflictChoice?=null) {
+    fun saveNote() {
         if(state.sending||state.importing)return
-        val draft=state.editor?:state.conflict?.draft?:state.draftDetail?:return
-        // A send click, including retries/conflict choices, permanently protects this session's
-        // copy. Failed or uncertain submissions must never be mistaken for an untouched edit.
+        val draft=state.editor?:return
         discardUnchangedEditor=false
-        cancelMemoRequest()
-        val id=draft.accountId
         autosave?.cancel()
+        shellState=shellState.copy(sending=true,saveError=null,error=null)
         viewModelScope.launch {
-            shellState=shellState.copy(sending=true,error=null)
             try {
-                flushEditorOrThrow()
-                val result=if(choice==null)repository.send(id,draft.id) else repository.resolveConflict(id,draft.id,choice)
-                if(state.accountId!=id)return@launch
-                when(result) {
-                    is SendResult.Sent -> {
-                        if(result.newerDraftKept) {
-                            val latest=runCatching {repository.getDraft(id,draft.id)}.getOrNull()
-                            if(latest!=null)savedEditor=latest
-                            shellState=shellState.copy(editor=latest?:state.editor,conflict=null,message="已发送，更新的修改仍保留在草稿。")
-                            if(latest!=null)observeEditorInput(latest)
-                        } else {
-                            clearEditor()
-                            val published = result.memo.name != draft.memoName && !result.memo.archived
-                            if (published) {
-                                if (shellState.page == UiPage.SEARCH) search.close()
-                                notes.revealPublishedMemo(result.memo)
-                            }
-                            shellState=shellState.copy(
-                                page=if(published)UiPage.NOTES else shellState.page,
-                                draftDetail=null,paneOpen=false,conflict=null,message="已发送到服务器",
-                            )
-                        }
-                        notes.reloadTags()
-                    }
-                    is SendResult.Conflict -> shellState=shellState.copy(conflict=result)
-                    is SendResult.KeptServer -> {
-                        clearEditor()
-                        shellState=shellState.copy(conflict=null,draftDetail=null,paneOpen=false,message="已保留服务端版本，本地草稿仍保留。")
-                    }
-                    is SendResult.Failed -> shellState=shellState.copy(error=result.message)
-                    is SendResult.Unknown -> shellState=shellState.copy(error="发送结果尚未确定："+result.message+"。下次手动重试会先核对服务端结果。")
-                }
-            }catch(e:Exception){report(e)}
-            finally {if(state.accountId==id)shellState=shellState.copy(sending=false)}
+                val memo=saveMutex.withLock {
+                    if (!flushEditorLocked()) return@withLock null
+                    repository.saveNote(draft.accountId,draft.id)
+                } ?: return@launch
+                if(state.accountId!=draft.accountId)return@launch
+                clearEditor()
+                if(shellState.page==UiPage.SEARCH)search.close()
+                if(memo.archived)archive.revealMemo(memo) else notes.revealMemo(memo)
+                shellState=shellState.copy(page=if(memo.archived)UiPage.ARCHIVE else UiPage.NOTES,
+                    draftDetail=null,paneOpen=false,message="已保存")
+            }catch(error:Exception) {
+                if(error is CancellationException)throw error
+                if(state.accountId==draft.accountId)shellState=shellState.copy(saveError=readable(error))
+            }finally {
+                if(state.accountId==draft.accountId)shellState=shellState.copy(sending=false)
+            }
         }
     }
-    fun cancelConflict(){shellState=shellState.copy(conflict=null)}
+
     fun deleteDraft(draft:Draft) {
         viewModelScope.launch {
             try {
                 repository.deleteDraft(draft.accountId,draft.id)
                 if(state.editor?.id==draft.id)clearEditor()
                 if(state.draftDetail?.id==draft.id)shellState=shellState.copy(draftDetail=null,paneOpen=false)
-                shellState=shellState.copy(message="已删除本地草稿，服务端笔记未改变。")
+                shellState=shellState.copy(message="已删除草稿")
             }catch(e:Exception){report(e)}
         }
     }
     fun archiveMemo(memo:Memo) {
         mutateMemo(memo,if(memo.archived)"已恢复到笔记列表" else "已归档") {id->
-            repository.setArchived(id,memo.name,!memo.archived)
+            repository.changeNote(id,memo.name,!memo.archived)
         }
     }
     fun deleteMemo(memo:Memo) {
-        mutateMemo(memo,"已删除服务端笔记") {id->
-            repository.deleteMemo(id,memo.name)
+        mutateMemo(memo,"已删除") {id->
+            repository.changeNote(id,memo.name,null)
             if(state.accountId==id) {
                 notes.expandedMemos.remove(memo.name)
                 search.expandedMemos.remove(memo.name)
@@ -592,15 +571,10 @@ class MemaoViewModel(
         shellState=shellState.copy(busy=true,error=null)
         viewModelScope.launch {
             try {
-                // Row actions are available next to a wide-screen editor. Save the affected
-                // draft before mutating its server note; leave unrelated editing undisturbed.
                 if(editorId!=null)flushEditorOrThrow()
                 action(id)
                 if(state.accountId==id) {
-                    // Keep any open draft, including edits typed while the request was running.
-                    // A later send of a deleted/changed server memo follows the existing conflict flow.
                     shellState=shellState.copy(message=message)
-                    notes.reloadTags()
                 }
             }catch(e:Exception){if(state.accountId==id)report(e)}
             finally {if(state.accountId==id)shellState=shellState.copy(busy=false)}
@@ -648,7 +622,7 @@ class MemaoViewModel(
         runCatching {connection.unregisterNetworkCallback(networkCallback)}
         pageStore.clear()
         audio.close()
-        CoroutineScope(Dispatchers.IO).launch {runCatching {repository.close()}}
+        if(ownsRepository)CoroutineScope(Dispatchers.IO).launch {runCatching {repository.close()}}
         super.onCleared()
     }
 }

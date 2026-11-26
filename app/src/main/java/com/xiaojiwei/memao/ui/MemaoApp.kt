@@ -95,7 +95,7 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
             var navigating by remember {mutableStateOf(false)}
             val closeDrawer:()->Unit={scope.launch {drawerState.close()}}
             val openDrawer:(()->Unit)?=if(modalAvailable)({keyboard?.hide();scope.launch {drawerState.open()}})else null
-            val showDetail=s.editor!=null||s.conflict!=null||s.paneOpen
+            val showDetail=s.editor!=null||s.paneOpen
             val navigateAfterClose:(()->Unit)->Unit={action->
                 if(permanentDrawer)action()
                 else if(!navigating) {
@@ -110,7 +110,7 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                     }
                 }
             }
-            BackHandler(!drawerVisible&&(s.editor!=null||s.paneOpen||s.conflict!=null||s.preparingMemo!=null||s.page==UiPage.SEARCH||s.page==UiPage.ACCOUNTS||(s.page==UiPage.LOGIN&&s.accountId!=null))) {
+            BackHandler(!drawerVisible&&(s.editor!=null||s.paneOpen||s.preparingMemo!=null||s.page==UiPage.SEARCH||s.page==UiPage.ACCOUNTS||s.page==UiPage.SYNC||(s.page==UiPage.LOGIN&&s.accountId!=null))) {
                 if(imeVisible)keyboard?.hide() else vm.back()
             }
             // The sheet handles open/predictive back; intercept back during the opening animation too.
@@ -145,16 +145,14 @@ fun MemaoApp(vm:MemaoViewModel,onConnect:(String,String)->Unit) {
                     // This content stays at the same composition site across all window sizes.
                     CompositionLocalProvider(LocalOpenNavigationDrawer provides openDrawer) {
                         Column(Modifier.weight(1f).fillMaxHeight()) {
-                            if(s.offline&&s.accountId!=null&&s.page!=UiPage.LOGIN&&s.page!=UiPage.SEARCH)StateBanner("当前离线 · 仅浏览本机缓存，内容可能不是最新","联网后由你手动发送草稿。")
-                            s.account?.takeIf {it.needsAuthentication}?.let {
-                                StateBanner("访问令牌已失效","缓存和草稿仍保留，更新令牌后可发送。",action={MmButton("更新令牌",{vm.showLogin(it)})})
-                            }
                             if(s.page==UiPage.LOGIN) {
                                 LoginPage(s,onConnect,if(s.accountId!=null)({vm.back()})else null,Modifier.weight(1f))
                             } else if(s.page==UiPage.ACCOUNTS&&s.editor==null) {
                                 AccountsPage(vm,Modifier.weight(1f))
                             } else if(s.page==UiPage.SETTINGS&&s.editor==null) {
                                 SettingsPage(vm,Modifier.weight(1f))
+                            } else if(s.page==UiPage.SYNC&&s.editor==null) {
+                                SyncPage(vm,Modifier.weight(1f))
                             } else {
                                 AdaptivePanes(
                                     wide=wide,showDetail=showDetail,
@@ -271,7 +269,7 @@ private fun NavigationDrawer(
                     }
                 }
                 Spacer(Modifier.height(12.dp));MmRule();Spacer(Modifier.height(12.dp))
-                DrawerItem(UiPage.SETTINGS,s.page==UiPage.SETTINGS||s.page==UiPage.ACCOUNTS){onNavigate {vm.navigate(UiPage.SETTINGS)}}
+                DrawerItem(UiPage.SETTINGS,s.page==UiPage.SETTINGS||s.page==UiPage.ACCOUNTS||s.page==UiPage.SYNC){onNavigate {vm.navigate(UiPage.SETTINGS)}}
             }
             Column(Modifier.fillMaxWidth().testTag("drawerFooter")) {
                 MmRule()

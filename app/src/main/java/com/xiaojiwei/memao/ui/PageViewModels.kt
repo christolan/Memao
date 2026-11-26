@@ -92,6 +92,7 @@ abstract class MemoListViewModel(
     private var request: Job? = null
     private var generation = 0L
     private var entered = false
+    private var tagObservation: Job? = null
 
     fun bindAccount(id: String?) {
         if (id == accountId) return
@@ -101,11 +102,19 @@ abstract class MemoListViewModel(
             untagged = untagged,
         ))
         observeQuery()
+        if (page == UiPage.NOTES && id != null) {
+            tagObservation = viewModelScope.launch {
+                repository.observeTags(id).collect { tags ->
+                    if (accountId == id) state = state.copy(tags = tags)
+                }
+            }
+        }
     }
 
     protected fun resetList(id: String?, initial: MemoListState = MemoListState()) {
         generation++
         observed?.cancel(); request?.cancel()
+        tagObservation?.cancel()
         resetAccount(id)
         entered = false
         expandedMemos.clear()
@@ -181,10 +190,6 @@ abstract class MemoListViewModel(
             try {
                 val result = if (more) repository.loadMore(id, q) else repository.refresh(id, q)
                 if (current()) state = state.copy(hasMore = result.hasMore, offline = result.offline)
-                if (page == UiPage.NOTES && !result.offline && current()) {
-                    val tags = repository.tags(id)
-                    if (current()) state = state.copy(tags = tags)
-                }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 if (current()) state = state.copy(error = error.message?.takeIf { it.isNotBlank() } ?: "操作失败，请重试。")
@@ -194,17 +199,9 @@ abstract class MemoListViewModel(
         }
     }
 
-    fun reloadTags() {
-        if (page != UiPage.NOTES) return
-        val id = accountId ?: return
-        viewModelScope.launch {
-            try {
-                val tags = repository.tags(id)
-                if (accountId == id) state = state.copy(tags = tags)
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
-            }
-        }
+    fun revealMemo(memo: Memo) {
+        if (page == UiPage.NOTES && !DomainRules.matches(memo, query)) setTag(null)
+        state = state.copy(memoToReveal = memo.name)
     }
 
     fun completeMemoReveal(name: String) {
@@ -216,12 +213,7 @@ abstract class MemoListViewModel(
 }
 
 class NotesViewModel(repository: MemaoRepository, saved: SavedStateHandle) :
-    MemoListViewModel(repository, saved, UiPage.NOTES) {
-    fun revealPublishedMemo(memo: Memo) {
-        if (!DomainRules.matches(memo, query)) setTag(null)
-        state = state.copy(memoToReveal = memo.name)
-    }
-}
+    MemoListViewModel(repository, saved, UiPage.NOTES)
 
 class ArchiveViewModel(repository: MemaoRepository, saved: SavedStateHandle) :
     MemoListViewModel(repository, saved, UiPage.ARCHIVE)

@@ -86,7 +86,7 @@ fun DraftsPage(vm:MemaoViewModel,page:DraftsViewModel,compact:Boolean) {
                 contentPadding=PaddingValues(horizontal=if(compact)20.dp else 24.dp,vertical=16.dp)) {
                 item(key="header") {
                     Column {
-                        Text("未发送内容只保存在这台设备",color=c.secondary,style=MaterialTheme.typography.labelSmall)
+                        Text("草稿保存在这台设备",color=c.secondary,style=MaterialTheme.typography.labelSmall)
                         Spacer(Modifier.height(16.dp));MmRule()
                     }
                 }
@@ -114,9 +114,9 @@ private fun MemoListPage(vm:MemaoViewModel,page:MemoListViewModel,audio:AudioSta
             val index = s.memos.indexOfFirst { it.name == name }
             if (index >= 0) {
                 val listState = page.listState
-                val itemIndex = index + if (shared.error == null) 0 else 1
+                val itemIndex = index + (if (notes) 0 else 1) + (if (shared.error == null) 0 else 1)
                 LaunchedEffect(listState, name, itemIndex) {
-                    listState.scrollToItem(itemIndex)
+                    listState.requestScrollToItem(itemIndex)
                     page.completeMemoReveal(name)
                 }
             }
@@ -266,14 +266,14 @@ internal fun MemoRow(memo:Memo,selected:Boolean,audio:AudioState,vm:MemaoViewMod
                 DropdownMenu(expanded=menuOpen,onDismissRequest={menuOpen=false},containerColor=c.background) {
                     DropdownMenuItem(text={Text("编辑",color=c.ink)},leadingIcon={LineIcon(MmIcon.EDIT)},enabled=!shared.busy,onClick={menuOpen=false;edit()})
                     DropdownMenuItem(text={Text("复制正文",color=c.ink)},leadingIcon={LineIcon(MmIcon.COPY)},onClick={menuOpen=false;clipboard.setText(AnnotatedString(memo.content));vm.notify("已复制正文")})
-                    DropdownMenuItem(text={Text(if(memo.archived)"取消归档" else "归档笔记",color=c.ink)},leadingIcon={LineIcon(if(memo.archived)MmIcon.UNARCHIVE else MmIcon.ARCHIVE)},enabled=!shared.busy&&!shared.offline,onClick={menuOpen=false;vm.archiveMemo(memo)})
-                    DropdownMenuItem(text={Text("删除笔记",color=c.danger)},leadingIcon={LineIcon(MmIcon.DELETE,tint=c.danger)},enabled=!shared.busy&&!shared.offline,onClick={menuOpen=false;deleting=true})
+                    DropdownMenuItem(text={Text(if(memo.archived)"取消归档" else "归档笔记",color=c.ink)},leadingIcon={LineIcon(if(memo.archived)MmIcon.UNARCHIVE else MmIcon.ARCHIVE)},enabled=!shared.busy,onClick={menuOpen=false;vm.archiveMemo(memo)})
+                    DropdownMenuItem(text={Text("删除笔记",color=c.danger)},leadingIcon={LineIcon(MmIcon.DELETE,tint=c.danger)},enabled=!shared.busy,onClick={menuOpen=false;deleting=true})
                 }
             }
         }
     }
     MmRule()
-    if(deleting)MmDialog("删除这条笔记？","此操作会删除服务端的笔记及关联附件，无法在本 APP 中恢复。",onDismiss={deleting=false},
+    if(deleting)MmDialog("删除这条笔记？","这条笔记及关联附件将被删除。",onDismiss={deleting=false},
         actions={MmButton("取消",{deleting=false});MmButton("删除笔记",{deleting=false;vm.deleteMemo(memo)},danger=true)})
 }
 

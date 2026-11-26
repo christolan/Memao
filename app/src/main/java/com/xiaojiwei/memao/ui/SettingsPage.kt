@@ -64,7 +64,7 @@ fun SettingsPage(vm:MemaoViewModel,modifier:Modifier=Modifier) {
             updater.confirm(confirmation::launch)
         }
     }
-    SettingsContent(vm.state,vm::setTheme,{vm.navigate(UiPage.ACCOUNTS)},vm::loadCache,vm::clearCache,modifier) {
+    SettingsContent(vm.state,vm::setTheme,{vm.navigate(UiPage.ACCOUNTS)},vm::loadCache,vm::clearCache,modifier,sync={SyncSettingsEntry(vm)}) {
         SettingsUpdate(
             installedVersion = updater.installedVersionName,
             state = state,
@@ -92,6 +92,7 @@ fun SettingsContent(
     onLoadCache:()->Unit,
     onClearCache:()->Unit,
     modifier:Modifier=Modifier,
+    sync:@Composable ()->Unit={},
     appUpdate:@Composable ()->Unit={},
 ) {
     val c=LocalMemaoColors.current
@@ -120,6 +121,7 @@ fun SettingsContent(
                     Spacer(Modifier.width(12.dp))
                     LineIcon(MmIcon.NEXT,tint=c.secondary)
                 }
+                sync()
 
                 SettingsSectionBreak()
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {

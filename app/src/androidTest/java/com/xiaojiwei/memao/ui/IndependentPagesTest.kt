@@ -284,7 +284,7 @@ class IndependentPagesTest {
                 vm.notes.state.memos.any { it.name == sentName } && vm.state.drafts.none { it.id == draft.id }
         }
         compose.onNodeWithTag("memo:$sentName").assertIsDisplayed()
-        compose.onNodeWithText("已发送到服务器").assertIsDisplayed()
+        compose.onNodeWithText("已保存").assertIsDisplayed()
         compose.runOnIdle {
             assertTrue(vm.notes.state.memos.map { it.name }.containsAll(originalNames))
             assertEquals(33, vm.notes.state.memos.size)
@@ -292,7 +292,9 @@ class IndependentPagesTest {
             assertSame(list, vm.notes.listState)
             assertEquals(sentName, list.layoutInfo.visibleItemsInfo.first().key)
         }
-        assertEquals("Sending must not reset an already loaded list through refresh", before, gateway.callCount())
+        assertEquals("Saving locally keeps the loaded list", before, gateway.callCount())
+        assertEquals(0, gateway.publishes)
+        runBlocking { vm.repository.synchronize(retry = true) }
         assertEquals(1, gateway.publishes)
     }
 
@@ -318,7 +320,9 @@ class IndependentPagesTest {
         }
         compose.onNodeWithTag("clearTagFilter").assertDoesNotExist()
         compose.onNodeWithTag("memo:$sentName").assertIsDisplayed()
-        compose.onNodeWithText("已发送到服务器").assertIsDisplayed()
+        compose.onNodeWithText("已保存").assertIsDisplayed()
+        assertEquals(0, gateway.publishes)
+        runBlocking { vm.repository.synchronize(retry = true) }
         assertEquals(1, gateway.publishes)
     }
 
@@ -354,46 +358,33 @@ class IndependentPagesTest {
         assertEquals(1, gateway.callsFor(archived = true, second = true))
     }
 
-    @Test fun keepingServerConflictAndOpeningChangedMemoReconcileBothWarmLists() {
+    @Test fun settingsConflictCanRestoreServerVersionToWarmArchive() {
         val gateway = PagesGateway(pageSize = 100)
         val vm = start(gateway)
         awaitNotes(vm, 32)
-        val original = compose.runOnIdle { vm.state.memos.take(2) }
+        val original = compose.runOnIdle { vm.state.memos.first() }
         val accountId = compose.runOnIdle { vm.state.accountId!! }
         navigate(vm, UiPage.ARCHIVE)
         compose.waitUntil(10_000) { !vm.state.loading && vm.state.memos.size == 32 }
         navigate(vm, UiPage.NOTES)
-        val draft = runBlocking { vm.repository.prepareEdit(accountId, original[0].name) }
+        val draft = runBlocking { vm.repository.prepareEdit(accountId, original.name) }
         compose.runOnIdle { vm.openDraft(draft) }
-        compose.onNodeWithTag("editorBody").performTextReplacement("尚未发送的本地修改")
-        gateway.archiveRemotely(original[0].name)
-        val before = gateway.callCount()
+        compose.onNodeWithTag("editorBody").performTextReplacement("尚未同步的本地修改")
+        gateway.archiveRemotely(original.name, "第一账号 服务端改写的记录")
         compose.onNodeWithTag("sendMemo").performClick()
-        compose.waitUntil(10_000) { !vm.state.sending && vm.state.conflict != null }
-        compose.onNodeWithText("保留服务端版本").performClick()
-        compose.onNodeWithText("继续", substring = false).performClick()
+        compose.waitUntil(10_000) { !vm.state.sending && vm.state.editor == null }
+        runBlocking { vm.repository.synchronize(retry = true) }
+        compose.onNodeWithText("版本冲突").assertDoesNotExist()
+        compose.runOnIdle { vm.navigate(UiPage.SETTINGS) }
+        compose.onNodeWithTag("settingsSync").performScrollTo().performClick()
+        compose.onNodeWithText("查看版本").performClick()
+        compose.onNodeWithText("采用服务器版本").performClick()
+        compose.onNodeWithText("继续", substring = false).assertIsEnabled().performClick()
         compose.waitUntil(10_000) {
-            !vm.state.sending && vm.state.conflict == null &&
-                vm.notes.state.memos.none { it.name == original[0].name } &&
-                vm.archive.state.memos.any { it.name == original[0].name && it.archived }
+            vm.notes.state.memos.none { it.name == original.name } &&
+                vm.archive.state.memos.any { it.name == original.name && it.archived }
         }
-        assertEquals("KEEP_SERVER preserves the unsent local draft", "尚未发送的本地修改", runBlocking { vm.repository.getDraft(accountId, draft.id) }.content)
-        navigate(vm, UiPage.ARCHIVE)
-        compose.runOnIdle { assertTrue(vm.state.memos.any { it.name == original[0].name }) }
-        assertEquals(before, gateway.callCount())
-
-        navigate(vm, UiPage.NOTES)
-        gateway.archiveRemotely(original[1].name)
-        compose.runOnIdle { vm.editMemo(original[1]) }
-        compose.waitUntil(10_000) {
-            vm.state.editor?.memoName == original[1].name && vm.notes.state.memos.none { it.name == original[1].name } &&
-                vm.archive.state.memos.any { it.name == original[1].name && it.archived }
-        }
-        compose.runOnIdle { vm.back() }
-        compose.waitUntil(10_000) { vm.state.editor == null }
-        navigate(vm, UiPage.ARCHIVE)
-        compose.runOnIdle { assertTrue(vm.state.memos.any { it.name == original[1].name }) }
-        assertEquals("Remote state reconciliation should not list either page again", before, gateway.callCount())
+        assertEquals("尚未同步的本地修改", runBlocking { vm.repository.getDraft(accountId, draft.id) }.content)
         assertEquals(0, gateway.publishes)
     }
 
@@ -477,8 +468,8 @@ class IndependentPagesTest {
         }).associateBy { it.name }.toMutableMap()
         @Volatile var pending: PendingList? = null
         var publishes = 0
-        fun archiveRemotely(name: String) = synchronized(values) {
-            values[name] = values.getValue(name).copy(state = "ARCHIVED", updateTime = "2026-11-08T02:00:00Z")
+        fun archiveRemotely(name: String, content: String) = synchronized(values) {
+            values[name] = values.getValue(name).copy(content = content, state = "ARCHIVED", updateTime = "2026-11-08T02:00:00Z")
         }
         fun callCount(): Int = calls.size
         fun callsFor(archived: Boolean, second: Boolean = false) = synchronized(calls) { calls.count { it.query.archived == archived && it.second == second } }

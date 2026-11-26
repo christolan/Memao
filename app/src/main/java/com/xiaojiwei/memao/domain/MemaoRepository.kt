@@ -13,6 +13,8 @@ import com.xiaojiwei.memao.data.local.DraftRecord
 import com.xiaojiwei.memao.data.local.MemaoDatabase
 import com.xiaojiwei.memao.data.local.MemoRecord
 import com.xiaojiwei.memao.data.local.ModelCodec
+import com.xiaojiwei.memao.data.local.SyncOperation
+import com.xiaojiwei.memao.data.local.SyncProgress
 import com.xiaojiwei.memao.data.local.TokenVault
 import com.xiaojiwei.memao.model.*
 import java.io.File
@@ -46,7 +48,6 @@ import org.json.JSONException
 
 private const val RECENT_SEARCH_LIMIT = 20
 
-/** Owns all account-scoped persistence and every explicit server write. No background publishing. */
 class MemaoRepository(
     context: Context,
     private val gateway: MemosGateway,
@@ -54,6 +55,7 @@ class MemaoRepository(
     private val database: MemaoDatabase = Room.databaseBuilder(context.applicationContext, MemaoDatabase::class.java, "memao.db").build(),
     preferencesName: String = "memao_preferences",
     filesRoot: File? = null,
+    private val scheduleSync: () -> Unit = {},
 ) {
     private val app = context.applicationContext
     private val dao = database.dao()
@@ -63,6 +65,8 @@ class MemaoRepository(
     private val removedSearchAccounts = mutableSetOf<String>()
     private val root = (filesRoot ?: File(app.filesDir, "accounts")).apply { mkdirs() }
     private val localLock = Mutex()
+    private val syncLock = Mutex()
+    private val syncEngine = SyncEngine(gateway)
     private val initialized = CompletableDeferred<Unit>()
     private val blobLocks = mutableMapOf<String, Mutex>()
     /** Leases cover group edit preparation and imports before their DB references exist. */
@@ -75,6 +79,7 @@ class MemaoRepository(
     private data class QueryKey(val accountId: String, val query: MemoQuery)
     private val membership = MutableStateFlow<Map<QueryKey, Set<String>>>(emptyMap())
     private val nextPages = ConcurrentHashMap<QueryKey, String>()
+    private val remoteEpoch = MutableStateFlow(0L)
     private val queryLocks = mutableMapOf<QueryKey, Mutex>()
 
     val accounts: StateFlow<List<Account>> = dao.observeAccounts().map { list -> list.map { ModelCodec.account(it.payload) } }
@@ -91,6 +96,7 @@ class MemaoRepository(
                     check(preferences.edit().putString("active_account", selected).commit())
                     mutableActive.value = selected
                 }
+                dao.resetInterruptedSync()
                 recoverLocalFiles()
                 tokenVault.retainAccounts(stored.map { it.id }.toSet())
                 initialized.complete(Unit)
@@ -143,9 +149,14 @@ class MemaoRepository(
 
     suspend fun removeAccount(id: String) = withContext(Dispatchers.IO) {
         initialized.await()
+        syncLock.withLock { removeAccountData(id) }
+    }
+
+    private suspend fun removeAccountData(id: String) {
         synchronized(activeSends) { activeSends.filterKeys { it.startsWith("$id:") }.values.toList() }.forEach { it.cancel() }
         localLock.withLock {
             database.withTransaction {
+                dao.deleteSyncOperations(id); dao.deleteSyncProgress(id)
                 dao.deleteAttempts(id); dao.deleteDrafts(id); dao.deleteMemos(id); dao.deleteBlobs(id); dao.deleteAccount(id)
             }
             synchronized(searchHistoryLock) {
@@ -208,6 +219,7 @@ class MemaoRepository(
         val lock = synchronized(queryLocks) { queryLocks.getOrPut(key) { Mutex() } }
         lock.withLock {
             val owner = account(accountId)
+            val requestEpoch = remoteEpoch.value
             val pageToken = if (more) nextPages[key] ?: "" else ""
             if (more && pageToken.isEmpty()) return@withLock PageResult(false)
             try {
@@ -215,13 +227,18 @@ class MemaoRepository(
                 page.memos.forEach { checkOwner(it, owner) }
                 localLock.withLock {
                     account(accountId)
-                    dao.putMemos(page.memos.map { MemoRecord(accountId, it.name, ModelCodec.memo(it), now()) })
+                    if (requestEpoch != remoteEpoch.value) return@withLock PageResult(nextPages[key]?.isNotEmpty() == true)
+                    val pending = dao.syncOperations(accountId).map { it.memoName }.toSet()
+                    val records = page.memos.filter { it.name !in pending }
+                    dao.putMemos(records.map { memoRecord(accountId, it) })
+                    val localNames = dao.memos(accountId).asSequence().filter { it.name in pending }
+                        .map { ModelCodec.memo(it.payload) }.filter { DomainRules.matches(it, query) }.map { it.name }.toSet()
                     val old = if (more) membership.value[key].orEmpty() else emptySet()
-                    membership.value = membership.value + (key to (old + page.memos.map { it.name }))
+                    membership.value = membership.value + (key to (old + records.map { it.name } + localNames))
                     nextPages[key] = page.nextPageToken
                     trimCacheLocked()
+                    PageResult(page.nextPageToken.isNotEmpty())
                 }
-                PageResult(page.nextPageToken.isNotEmpty())
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 markAuthentication(owner, error)
@@ -235,6 +252,13 @@ class MemaoRepository(
     suspend fun refresh(accountId: String, query: MemoQuery = MemoQuery()): PageResult = fetchPage(accountId, query, false)
     suspend fun loadMore(accountId: String, query: MemoQuery = MemoQuery()): PageResult = fetchPage(accountId, query, true)
 
+    internal fun observeTags(accountId: String): Flow<List<TagCount>> =
+        dao.observeMemos(accountId).map(::tagCounts)
+
+    private fun tagCounts(memos: List<MemoRecord>): List<TagCount> =
+        memos.map { ModelCodec.memo(it.payload) }.filter { !it.archived }.flatMap { it.tags }
+            .groupingBy { it }.eachCount().map { TagCount(it.key, it.value) }.sortedBy { it.tag }
+
     suspend fun tags(accountId: String, cachedOnly: Boolean = false): List<TagCount> = withContext(Dispatchers.IO) {
         initialized.await()
         val owner = account(accountId)
@@ -243,8 +267,7 @@ class MemaoRepository(
             catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { markAuthentication(owner, error) }
         }
-        dao.memos(accountId).map { ModelCodec.memo(it.payload) }.filter { !it.archived }
-            .flatMap { it.tags }.groupingBy { it }.eachCount().map { TagCount(it.key, it.value) }.sortedBy { it.tag }
+        tagCounts(dao.memos(accountId))
     }
 
     suspend fun openMemo(accountId: String, name: String): Memo = withContext(Dispatchers.IO) {
@@ -348,7 +371,7 @@ class MemaoRepository(
             return withContext(Dispatchers.IO) {
                 initialized.await()
                 dao.drafts(accountId).map { ModelCodec.draft(it.payload) }.firstOrNull { it.memoName == name }?.let { return@withContext PreparedEdit(it, created = false) }
-                val memo = openMemo(accountId, name)
+                val memo = dao.memo(accountId, name)?.let { ModelCodec.memo(it.payload) } ?: openMemo(accountId, name)
                 val lease = "edit:${newUid()}"
                 localLock.withLock {
                     account(accountId)
@@ -508,6 +531,292 @@ class MemaoRepository(
             database.withTransaction { dao.deleteDraft(accountId, id); dao.deleteAttempt(accountId, id) }
             removeUnreferencedImportsLocked()
         }
+    }
+
+    internal fun requestSync() = scheduleSync()
+
+    internal fun syncOperations(accountId: String): Flow<List<SyncOperation>> = dao.observeSync(accountId)
+    internal fun syncProgress(accountId: String): Flow<SyncProgress?> = dao.observeSyncProgress(accountId)
+
+    internal suspend fun saveNote(accountId: String, draftId: String): Memo = withContext(Dispatchers.IO) {
+        initialized.await()
+        val memo = localLock.withLock {
+            val owner = account(accountId)
+            val value = draft(accountId, draftId)
+            require(!value.empty) { "请先添加文字、图片或音频" }
+            val name = value.memoName ?: "memos/${value.createUid}"
+            val current = dao.memo(accountId, name)?.let { ModelCodec.memo(it.payload) }
+            require(value.isNew || current != null) { "这条笔记已移除，修改仍保存在草稿箱" }
+            val base = value.baseMemo
+            val published = optimisticMemo(owner, value, current ?: base, name)
+            database.withTransaction {
+                recordLocalAttachments(owner.id, value, published)
+                dao.putMemo(memoRecord(accountId, published))
+                dao.putSync(SyncOperation(accountId = accountId, memoName = name, kind = SAVE,
+                    base = base?.let(ModelCodec::memo), proposed = ModelCodec.memo(published), draft = ModelCodec.draft(value)))
+                dao.deleteDraft(accountId, draftId)
+                dao.deleteAttempt(accountId, draftId)
+            }
+            updateMembership(accountId, published)
+            published
+        }
+        scheduleSync()
+        memo
+    }
+
+    private fun optimisticMemo(owner: Account, value: Draft, base: Memo?, name: String): Memo {
+        val timestamp = Instant.ofEpochMilli(now()).toString()
+        val original = base ?: Memo(name, "", owner.userName, createTime = timestamp)
+        return original.copy(
+            content = value.content,
+            updateTime = timestamp,
+            attachments = value.attachments.map {
+                it.original?.takeIf { !value.isNew } ?: it.uploaded ?: Attachment("attachments/${it.uploadUid}", it.filename, it.type, it.size)
+            },
+            tags = if (value.content == original.content) original.tags else DomainRules.extractTags(value.content),
+        )
+    }
+
+    private suspend fun recordLocalAttachments(accountId: String, value: Draft, memo: Memo) {
+        value.attachments.zip(memo.attachments).forEach { (item, attachment) ->
+            val file = File(item.localPath)
+            require(file.isFile && file.canRead()) { "草稿附件缺失，请重新添加" }
+            dao.putBlob(BlobRecord(attachmentKey(accountId, attachment), accountId, attachment.name, file.absolutePath, file.length(), now()))
+        }
+    }
+
+    internal suspend fun changeNote(accountId: String, name: String, archived: Boolean?) = withContext(Dispatchers.IO) {
+        initialized.await()
+        localLock.withLock {
+            account(accountId)
+            val base = dao.memo(accountId, name)?.let { ModelCodec.memo(it.payload) }
+                ?: throw IllegalStateException("这条笔记已移除")
+            val changed = archived?.let { base.copy(state = if (it) "ARCHIVED" else "NORMAL") }
+            database.withTransaction {
+                dao.putSync(SyncOperation(accountId = accountId, memoName = name, kind = if (changed == null) DELETE else ARCHIVE,
+                    base = ModelCodec.memo(base), proposed = ModelCodec.memo(changed ?: base)))
+                if (changed == null) dao.deleteMemo(accountId, name)
+                else dao.putMemo(memoRecord(accountId, changed))
+            }
+            if (changed == null) forgetMemoMembership(accountId, name)
+            else updateMembership(accountId, changed)
+        }
+        scheduleSync()
+    }
+
+    internal suspend fun retryOperation(accountId: String, id: Long) = withContext(Dispatchers.IO) {
+        localLock.withLock {
+            val value = dao.syncOperation(id) ?: return@withLock
+            if (value.accountId == accountId && value.status in setOf(FAILED, RETRYABLE)) dao.putSync(value.copy(status = QUEUED, error = null))
+        }
+        scheduleSync()
+    }
+
+    internal suspend fun undoDelete(accountId: String, id: Long): Unit = withContext(Dispatchers.IO) {
+        localLock.withLock {
+            val value = dao.syncOperation(id) ?: return@withLock
+            check(value.accountId == accountId && value.kind == DELETE && !value.started) { "删除已开始处理" }
+            val memo = ModelCodec.memo(value.proposed)
+            database.withTransaction {
+                dao.putMemo(memoRecord(accountId, memo))
+                dao.deleteSync(id)
+            }
+            updateMembership(accountId, memo)
+        }
+    }
+
+    internal suspend fun resolveSync(accountId: String, id: Long, choice: ConflictChoice): Unit = withContext(Dispatchers.IO) {
+        localLock.withLock {
+            val owner = account(accountId)
+            val value = dao.syncOperation(id) ?: return@withLock
+            check(value.accountId == accountId && value.status == CONFLICT)
+            val server = value.remote?.let(ModelCodec::memo)
+            val chain = dao.syncOperations(accountId, value.memoName)
+            database.withTransaction {
+                when (choice) {
+                    ConflictChoice.OVERWRITE -> {
+                        check(server != null) { "服务器笔记已删除，请另存为新笔记" }
+                        dao.putSync(value.copy(base = value.remote, remote = null, submitted = null, status = QUEUED, error = null))
+                    }
+                    ConflictChoice.KEEP_SERVER, ConflictChoice.SAVE_AS_NEW -> {
+                        val versions = chain.mapNotNull { it.draft?.let(ModelCodec::draft) }
+                        for (version in versions.dropLast(1)) dao.putDraft(draftRecord(version))
+                        val latest = versions.lastOrNull()
+                        if (choice == ConflictChoice.SAVE_AS_NEW) {
+                            check(latest != null)
+                            val copy = latest.copy(memoName = null, baseMemo = null, createUid = newUid(),
+                                attachments = latest.attachments.map { it.copy(uploadUid = newUid(), uploaded = null) })
+                            val memo = optimisticMemo(owner, copy, null, "memos/${copy.createUid}")
+                            recordLocalAttachments(accountId, copy, memo)
+                            dao.putMemo(memoRecord(accountId, memo))
+                            dao.putSync(SyncOperation(accountId = accountId, memoName = memo.name, kind = SAVE,
+                                base = null, proposed = ModelCodec.memo(memo), draft = ModelCodec.draft(copy)))
+                            updateMembership(accountId, memo)
+                        } else if (latest != null) {
+                            dao.putDraft(draftRecord(latest))
+                        }
+                        if (server == null) dao.deleteMemo(accountId, value.memoName)
+                        else dao.putMemo(memoRecord(accountId, server))
+                        chain.forEach { dao.deleteSync(it.id) }
+                    }
+                }
+            }
+            if (choice != ConflictChoice.OVERWRITE) {
+                if (server == null) forgetMemoMembership(accountId, value.memoName)
+                else updateMembership(accountId, server)
+            }
+        }
+        scheduleSync()
+    }
+
+    internal suspend fun synchronize(retry: Boolean): Boolean = syncLock.withLock {
+        initialized.await()
+        var needsRetry = false
+        for (record in dao.accounts()) {
+            val owner = ModelCodec.account(record.payload)
+            if (owner.needsAuthentication) continue
+            val blocked = mutableSetOf<String>()
+            for (pending in dao.syncOperations(owner.id)) {
+                if (pending.memoName in blocked) continue
+                val operation = localLock.withLock {
+                    val current = dao.syncOperation(pending.id) ?: return@withLock null
+                    if (current.status == CONFLICT || current.status == FAILED || current.status == RETRYABLE && !retry) return@withLock null
+                    current.copy(status = SENDING, error = null).also { dao.putSync(it) }
+                }
+                if (operation == null) {
+                    if (dao.syncOperation(pending.id) != null) blocked.add(pending.memoName)
+                    continue
+                }
+                try {
+                    when (val result = syncEngine.push(owner, operation) { memo ->
+                        localLock.withLock {
+                            val latest = dao.syncOperation(operation.id)
+                            if (latest == null) false
+                            else {
+                                dao.putSync(latest.copy(submitted = ModelCodec.memo(memo), started = true))
+                                true
+                            }
+                        }
+                    }) {
+                        SyncResult.Cancelled -> Unit
+                        is SyncResult.Written -> finishOperation(owner, operation, result.memo)
+                        is SyncResult.Conflict -> {
+                            blocked.add(operation.memoName)
+                            localLock.withLock {
+                                dao.syncOperation(operation.id)?.let {
+                                    dao.putSync(it.copy(status = CONFLICT, remote = result.memo?.let(ModelCodec::memo)))
+                                }
+                            }
+                        }
+                    }
+                } catch (error: CancellationException) {
+                    withContext(NonCancellable) {
+                        localLock.withLock { dao.syncOperation(operation.id)?.let { dao.putSync(it.copy(status = QUEUED)) } }
+                    }
+                    throw error
+                } catch (error: Exception) {
+                    blocked.add(operation.memoName)
+                    markAuthentication(owner, error)
+                    val automatic = retryableSyncError(error)
+                    needsRetry = needsRetry || automatic
+                    localLock.withLock {
+                        val status = if (automatic) RETRYABLE else FAILED
+                        dao.syncOperation(operation.id)?.let { dao.putSync(it.copy(status = status, error = error.message ?: "请求失败")) }
+                    }
+                }
+            }
+            val progress = dao.syncProgress(owner.id) ?: SyncProgress(owner.id, 0, 0, null, null)
+            try {
+                val full = progress.cursor == null || now() - progress.reconciledAt >= 15 * 60_000
+                val cursor = pullChanges(owner, progress.cursor.takeUnless { full })
+                dao.putSyncProgress(progress.copy(completedAt = now(),
+                    reconciledAt = if (full) now() else progress.reconciledAt, cursor = cursor ?: progress.cursor, error = null))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                markAuthentication(owner, error)
+                dao.putSyncProgress(progress.copy(error = error.message ?: "无法读取服务器变更"))
+                needsRetry = needsRetry || retryableSyncError(error)
+            }
+        }
+        needsRetry
+    }
+
+    private fun retryableSyncError(error: Exception): Boolean {
+        val status = (error as? MemosException)?.statusCode
+        return error is IOException || status == 0 || status == 401 || status == 408 || status == 409 || status == 429 || (status ?: 0) >= 500
+    }
+
+    private suspend fun finishOperation(owner: Account, operation: SyncOperation, memo: Memo?) = localLock.withLock {
+        if (dao.syncOperation(operation.id) == null) return@withLock
+        val next = dao.syncOperations(owner.id, operation.memoName).firstOrNull { it.id != operation.id }
+        database.withTransaction {
+            if (memo != null) {
+                if (next?.base != null && DomainRules.sameBase(ModelCodec.memo(next.base), memo)) {
+                    dao.putSync(next.copy(base = ModelCodec.memo(memo)))
+                }
+                val draft = operation.draft?.let(ModelCodec::draft)
+                draft?.attachments?.forEach { item ->
+                    val remote = memo.attachments.firstOrNull { it.name == item.original?.name || it.name == "attachments/${item.uploadUid}" }
+                    val file = File(item.localPath)
+                    if (remote != null && file.isFile && (remote.size == 0L || remote.size == file.length())) {
+                        dao.putBlob(BlobRecord(attachmentKey(owner.id, remote), owner.id, remote.name, file.absolutePath, file.length(), now()))
+                        dao.blobs(owner.id).filter { it.path == file.absolutePath && it.remoteName == null }.forEach { dao.deleteBlob(it.id) }
+                    }
+                }
+            }
+            if (next == null) {
+                if (memo == null) dao.deleteMemo(owner.id, operation.memoName)
+                else dao.putMemo(memoRecord(owner.id, checkOwner(memo, owner)))
+            }
+            dao.deleteSync(operation.id)
+        }
+        remoteEpoch.value++
+        if (next == null) {
+            if (memo == null) forgetMemoMembership(owner.id, operation.memoName)
+            else updateMembership(owner.id, memo)
+        }
+    }
+
+    private suspend fun pullChanges(owner: Account, after: String?): String? {
+        val before = dao.memos(owner.id).associateBy { it.name }
+        val found = linkedMapOf<String, Memo>()
+        val threshold = after?.let { Instant.parse(it).minusSeconds(1).toString() }
+        for (archived in listOf(false, true)) {
+            var token = ""
+            val seen = mutableSetOf<String>()
+            do {
+                val page = gateway.list(owner, MemoQuery(archived = archived, pageSize = 100, updatedSince = threshold), token)
+                page.memos.forEach { found[it.name] = checkOwner(it, owner) }
+                token = page.nextPageToken
+                check(token.isEmpty() || seen.add(token)) { "服务器重复返回同一个分页位置" }
+            } while (token.isNotEmpty())
+        }
+        val missing = if (after == null) before.keys - found.keys else emptySet()
+        val removed = mutableSetOf<String>()
+        val pendingAtRead = dao.syncOperations(owner.id).map { it.memoName }.toSet()
+        for (name in missing - pendingAtRead) {
+            try {
+                found[name] = checkOwner(gateway.get(owner, name), owner)
+            } catch (error: MemosException) {
+                if (error.statusCode == 404) removed.add(name) else throw error
+            }
+        }
+        localLock.withLock {
+            val pending = dao.syncOperations(owner.id).map { it.memoName }.toSet()
+            val changed = found.values.filter { it.name !in pending && before[it.name]?.payload != ModelCodec.memo(it) }
+            val deleted = removed - pending
+            database.withTransaction {
+                dao.putMemos(changed.map { memoRecord(owner.id, it) })
+                deleted.forEach { dao.deleteMemo(owner.id, it) }
+            }
+            if (changed.isNotEmpty() || deleted.isNotEmpty()) remoteEpoch.value++
+            changed.forEach { updateMembership(owner.id, it) }
+            deleted.forEach { forgetMemoMembership(owner.id, it) }
+            trimCacheLocked()
+        }
+        return (found.values.mapNotNull { runCatching { Instant.parse(it.updateTime) }.getOrNull() } +
+            listOfNotNull(after?.let(Instant::parse))).maxOrNull()?.toString()
     }
 
     suspend fun send(accountId: String, draftId: String): SendResult = sendInternal(accountId, draftId, null)
@@ -739,13 +1048,19 @@ class MemaoRepository(
         SendResult.Sent(memo, keepNewer)
     }
 
+    private fun memoRecord(accountId: String, memo: Memo) = MemoRecord(accountId, memo.name, ModelCodec.memo(memo), now())
+
     private suspend fun cacheMemo(owner: Account, memo: Memo) {
         checkOwner(memo, owner)
-        dao.putMemo(MemoRecord(owner.id, memo.name, ModelCodec.memo(memo), now()))
+        dao.putMemo(memoRecord(owner.id, memo))
+        updateMembership(owner.id, memo)
+    }
+
+    private fun updateMembership(accountId: String, memo: Memo) {
         // Single-record reads/writes must also reach pages that have already loaded.
         // Keep all other loaded members and pagination tokens intact.
         membership.value = membership.value.mapValues { (key, names) ->
-            if (key.accountId != owner.id) names
+            if (key.accountId != accountId) names
             else if (DomainRules.matches(memo, key.query)) names + memo.name
             else names - memo.name
         }
@@ -795,7 +1110,8 @@ class MemaoRepository(
     }
 
     private suspend fun protectedPaths(): Set<String> =
-        (dao.allDrafts().map { ModelCodec.draft(it.payload) } + dao.attempts().map { ModelCodec.draft(it.payload) })
+        (dao.allDrafts().map { ModelCodec.draft(it.payload) } + dao.attempts().map { ModelCodec.draft(it.payload) } +
+            dao.allSyncOperations().mapNotNull { it.draft?.let(ModelCodec::draft) })
             .flatMap { it.attachments.map { attachment -> attachment.localPath } }.toSet() + temporaryPins.values.flatten()
 
     suspend fun cacheReport(): CacheReport = withContext(Dispatchers.IO) {
@@ -831,8 +1147,9 @@ class MemaoRepository(
         var total = cacheReportLocked().ordinaryBytes
         if (total <= limit) return
         val protected = protectedPaths() + excluded
+        val pendingMemoKeys = dao.allSyncOperations().map { it.accountId to it.memoName }.toSet()
         val candidates = dao.blobs().filter { it.path !in protected }.map { Triple(it.lastUsed, it, null as MemoRecord?) } +
-            dao.allMemos().map { Triple(it.lastUsed, null as BlobRecord?, it) }
+            dao.allMemos().filter { memo -> (memo.accountId to memo.name) !in pendingMemoKeys }.map { Triple(it.lastUsed, null as BlobRecord?, it) }
         for ((_, blob, memo) in candidates.sortedBy { it.first }) {
             if (total <= limit) break
             if (blob != null) {

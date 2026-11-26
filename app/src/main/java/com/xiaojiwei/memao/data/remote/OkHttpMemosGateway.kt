@@ -82,7 +82,7 @@ class OkHttpMemosGateway(
         val url = endpoint(origin, "api/v1/memos").newBuilder()
             .addQueryParameter("state", if (query.archived) "ARCHIVED" else "NORMAL")
             .addQueryParameter("pageSize", query.pageSize.coerceIn(1, 1000).toString())
-            .addQueryParameter("orderBy", "create_time desc")
+            .addQueryParameter("orderBy", if (query.updatedSince == null) "create_time desc" else "update_time asc, name asc")
             .addQueryParameter("filter", MemosProtocol.filter(account.userName, query))
             .apply { if (pageToken.isNotEmpty()) addQueryParameter("pageToken", pageToken) }
             .build()
@@ -130,7 +130,7 @@ class OkHttpMemosGateway(
         request.attachments?.let {
             body.put("attachments", MemosProtocol.attachmentNames(it)); mask.add("attachments")
         }
-        if (request.content != null || request.attachments != null) mask.add("update_time")
+        if (request.content != null || request.attachments != null || request.state != null) mask.add("update_time")
         request.state?.let {
             if (it != "NORMAL" && it != "ARCHIVED") throw MemosException("无效的笔记状态")
             body.put("state", it); mask.add("state")

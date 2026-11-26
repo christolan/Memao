@@ -39,6 +39,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -300,7 +301,7 @@ class EditorDraftPersistenceTest {
     }
 
     @Test fun cancelledPreparationCannotLeaveAnUnchangedCopyOrOpenAnEditor() {
-        start()
+        start(withAttachment = true)
         for (navigate in listOf(false, true)) {
             val response = PendingResponse(gateway.memo).also { pending.add(it) }
             gateway.pending = response
@@ -330,18 +331,19 @@ class EditorDraftPersistenceTest {
         }
     }
 
-    @Test fun attemptedSendFailureRetainsTheDraftEvenWithoutContentChanges() {
+    @Test fun aRejectedSyncKeepsTheLocallySavedNote() {
         start()
         openMemoByLongPress()
-        val id = compose.runOnIdle { vm.state.editor!!.id }
+        val content = "已经在本机保存的修改"
+        compose.onNodeWithTag("editorBody").performTextReplacement(content)
         compose.onNodeWithTag("sendMemo").performClick()
-        compose.waitUntil(10_000) { !vm.state.sending && vm.state.error != null }
-        compose.onNodeWithContentDescription("返回").performClick()
         awaitClosed()
-        val saved = persisted(first.id).single()
-        assertEquals(id, saved.id)
-        assertEquals(gateway.memo.content, saved.content)
-        assertTrue("The gateway must have actually received an update attempt", gateway.publishes > 0)
+        runBlocking { repository.synchronize(retry = true) }
+        compose.onNodeWithText(content).assertIsDisplayed()
+        assertEquals(1, gateway.publishes)
+        val operation = runBlocking { repository.syncOperations(first.id).first().single() }
+        assertEquals("FAILED", operation.status)
+        assertTrue(persisted(first.id).isEmpty())
     }
 
     @Test fun existingTagsCanBeSelectedOrFilteredAndCustomTagsCanStillBeCreated() {
@@ -391,8 +393,8 @@ class EditorDraftPersistenceTest {
         compose.onNodeWithTag("editorBody").assertTextEquals("#本机缓存标签")
         compose.waitUntil(10_000) { !vm.state.saving && persisted(first.id).any { it.content == "#本机缓存标签" } }
         compose.onNodeWithTag("editorSaveStatus").assertTextEquals("草稿已保存到本机")
-        compose.onNodeWithText("离线草稿").assertExists()
-        compose.onNodeWithTag("sendMemo").assertIsNotEnabled()
+        compose.onNodeWithText("离线草稿").assertDoesNotExist()
+        compose.onNodeWithTag("sendMemo").assertIsEnabled()
         capture("offline")
     }
 
@@ -468,7 +470,7 @@ class EditorDraftPersistenceTest {
     }
 
     private class EditGateway(withAttachment: Boolean) : MemosGateway {
-        val memo = Memo("memos/edit-persistence", "这是服务器原始笔记正文", "users/1", updateTime = "2026-11-08T00:00:00Z",
+        val memo = Memo("memos/edit-persistence", "这是服务器原始笔记正文", "users/1", updateTime = "2026-11-08T00:00:00Z", tags = listOf("日常", "计划"),
             attachments = if (withAttachment) listOf(Attachment("attachments/original", "原有音频.wav", "audio/wav", remoteBytes.size.toLong())) else emptyList())
         @Volatile var pending: PendingResponse? = null
         @Volatile var publishes = 0
@@ -481,15 +483,15 @@ class EditorDraftPersistenceTest {
         override suspend fun tags(account: Account) = if (account.serverUrl.contains("first.fixture.invalid")) {
             listOf(TagCount("日常", 2), TagCount("计划", 1), TagCount("日常", 1))
         } else listOf(TagCount("工作", 1))
-        override suspend fun get(account: Account, name: String): Memo {
-            val response = pending ?: return memo
-            return withContext(NonCancellable) { response.started.complete(Unit); response.result.await() }
-        }
+        override suspend fun get(account: Account, name: String): Memo = memo
         override suspend fun create(account: Account, request: CreateMemo): Memo { publishes++; throw MemosException("隔离测试发送被拒绝", 400) }
         override suspend fun update(account: Account, request: UpdateMemo): Memo { publishes++; throw MemosException("隔离测试发送被拒绝", 400) }
         override suspend fun delete(account: Account, name: String) = error("Must not delete remote data")
         override suspend fun upload(account: Account, request: UploadFile): Attachment = error("Must not upload")
-        override suspend fun download(account: Account, attachment: Attachment, destination: File) { destination.writeBytes(remoteBytes) }
+        override suspend fun download(account: Account, attachment: Attachment, destination: File) {
+            pending?.let { response -> withContext(NonCancellable) { response.started.complete(Unit); response.result.await() } }
+            destination.writeBytes(remoteBytes)
+        }
         companion object { val remoteBytes = byteArrayOf(1, 2, 3, 4, 5) }
     }
 }

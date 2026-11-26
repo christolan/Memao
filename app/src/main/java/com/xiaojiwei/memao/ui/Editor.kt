@@ -83,7 +83,7 @@ fun EditorPage(
                 },
                 enabled = editable,
             )
-            MmButton(if(s.sending)"保存中…" else "保存",{keyboard?.hide();vm.send()},Modifier.testTag("sendMemo"),primary=true,enabled=editable&&!draft.empty&&!s.offline)
+            MmButton(if(s.sending)"保存中…" else "保存",{keyboard?.hide();vm.saveNote()},Modifier.testTag("sendMemo"),primary=true,enabled=editable&&!draft.empty)
         }
         s.error?.let {StateBanner(it,error=true,action={MmIconButton(MmIcon.CLOSE,"关闭错误提示",onClick=vm::dismissError)})}
         key(input,s.preview) {
@@ -189,7 +189,6 @@ fun EditorPage(
                     style = MaterialTheme.typography.labelSmall,
                     textAlign = TextAlign.End,
                 )
-                if (s.offline) Text("离线草稿", color = c.secondary, style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -204,7 +203,7 @@ fun EditorPage(
             addTag = false
         })
     }
-    removing?.let {item->MmDialog("移除附件？","发送前只修改本地草稿，服务端原笔记暂不改变。",onDismiss={removing=null},
+    removing?.let {item->MmDialog("移除附件？","此附件将从当前草稿中移除。",onDismiss={removing=null},
         actions={MmButton("取消",{removing=null});MmButton("移除",{vm.removeAttachment(item.key);removing=null},danger=true)})}
 }
 

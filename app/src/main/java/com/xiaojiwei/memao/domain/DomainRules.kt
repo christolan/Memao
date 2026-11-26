@@ -27,6 +27,9 @@ object DomainRules {
             (if (query.untagged) memo.tags.isEmpty() else query.tag == null || query.tag in memo.tags) &&
             asciiFold(memo.content).contains(asciiFold(query.keyword))
 
+    fun extractTags(content: String): List<String> =
+        Regex("""(?:^|\s)#([\p{L}\p{N}_-]+)""").findAll(content).map { it.groupValues[1] }.distinct().toList()
+
     fun sameBase(left: Memo, right: Memo): Boolean =
         left.name == right.name && left.creator == right.creator && left.space == right.space &&
             left.content == right.content && left.visibility == right.visibility && left.state == right.state &&

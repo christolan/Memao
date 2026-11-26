@@ -57,6 +57,7 @@ object MemosProtocol {
     fun filter(userName: String, query: MemoQuery): String = buildString {
         resourceName(userName, "users")
         append("creator == ").append(literal(userName)).append(" && space == null")
+        query.updatedSince?.let { append(" && updated_ts >= timestamp(").append(literal(it)).append(')') }
         if (!query.archived) {
             if (query.untagged) append(" && size(tags) == 0")
             else query.tag?.takeIf { it.isNotEmpty() }?.let {

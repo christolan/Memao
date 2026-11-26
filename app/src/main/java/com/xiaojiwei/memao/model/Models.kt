@@ -62,6 +62,7 @@ data class MemoQuery(
     val tag: String? = null,
     val pageSize: Int = 30,
     val untagged: Boolean = false,
+    val updatedSince: String? = null,
 )
 
 data class MemoPage(val memos: List<Memo>, val nextPageToken: String = "")

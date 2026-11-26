@@ -1,5 +1,6 @@
 package com.xiaojiwei.memao.data.local
 
+import androidx.room.AutoMigration
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -33,6 +34,31 @@ data class BlobRecord(
 @Entity(tableName = "attempts", indices = [Index("accountId")])
 data class AttemptRecord(@PrimaryKey val draftId: String, val accountId: String, val revision: Long, val payload: String)
 
+@Entity(tableName = "sync_operations", indices = [Index(value = ["accountId", "memoName"])])
+data class SyncOperation(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val accountId: String,
+    val memoName: String,
+    val kind: String,
+    val base: String?,
+    val proposed: String,
+    val draft: String? = null,
+    val status: String = "QUEUED",
+    val error: String? = null,
+    val remote: String? = null,
+    val submitted: String? = null,
+    val started: Boolean = false,
+)
+
+@Entity(tableName = "sync_progress")
+data class SyncProgress(
+    @PrimaryKey val accountId: String,
+    val completedAt: Long,
+    val reconciledAt: Long,
+    val cursor: String?,
+    val error: String?,
+)
+
 @Dao
 interface MemaoDao {
     @Query("SELECT * FROM accounts ORDER BY rowid") fun observeAccounts(): Flow<List<AccountRecord>>
@@ -49,7 +75,7 @@ interface MemaoDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putMemos(records: List<MemoRecord>)
     @Query("DELETE FROM memos WHERE accountId = :accountId AND name = :name") suspend fun deleteMemo(accountId: String, name: String)
     @Query("DELETE FROM memos WHERE accountId = :accountId") suspend fun deleteMemos(accountId: String)
-    @Query("DELETE FROM memos") suspend fun clearMemos()
+    @Query("DELETE FROM memos WHERE NOT EXISTS (SELECT 1 FROM sync_operations WHERE sync_operations.accountId = memos.accountId AND sync_operations.memoName = memos.name)") suspend fun clearMemos()
 
     @Query("SELECT * FROM drafts WHERE accountId = :accountId ORDER BY updatedAt DESC") fun observeDrafts(accountId: String): Flow<List<DraftRecord>>
     @Query("SELECT * FROM drafts WHERE accountId = :accountId ORDER BY updatedAt DESC") suspend fun drafts(accountId: String): List<DraftRecord>
@@ -71,9 +97,29 @@ interface MemaoDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putAttempt(record: AttemptRecord)
     @Query("DELETE FROM attempts WHERE accountId = :accountId AND draftId = :draftId") suspend fun deleteAttempt(accountId: String, draftId: String)
     @Query("DELETE FROM attempts WHERE accountId = :accountId") suspend fun deleteAttempts(accountId: String)
+
+    @Query("SELECT * FROM sync_operations WHERE accountId = :accountId ORDER BY id") fun observeSync(accountId: String): Flow<List<SyncOperation>>
+    @Query("SELECT * FROM sync_operations WHERE accountId = :accountId ORDER BY id") suspend fun syncOperations(accountId: String): List<SyncOperation>
+    @Query("SELECT * FROM sync_operations WHERE accountId = :accountId AND memoName = :name ORDER BY id") suspend fun syncOperations(accountId: String, name: String): List<SyncOperation>
+    @Query("SELECT * FROM sync_operations ORDER BY id") suspend fun allSyncOperations(): List<SyncOperation>
+    @Query("SELECT * FROM sync_operations WHERE id = :id") suspend fun syncOperation(id: Long): SyncOperation?
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putSync(operation: SyncOperation): Long
+    @Query("UPDATE sync_operations SET status = 'QUEUED' WHERE status = 'SENDING'") suspend fun resetInterruptedSync()
+    @Query("DELETE FROM sync_operations WHERE id = :id") suspend fun deleteSync(id: Long)
+    @Query("DELETE FROM sync_operations WHERE accountId = :id") suspend fun deleteSyncOperations(id: String)
+    @Query("SELECT * FROM sync_progress WHERE accountId = :id") fun observeSyncProgress(id: String): Flow<SyncProgress?>
+    @Query("SELECT * FROM sync_progress WHERE accountId = :id") suspend fun syncProgress(id: String): SyncProgress?
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putSyncProgress(progress: SyncProgress)
+    @Query("DELETE FROM sync_progress WHERE accountId = :id") suspend fun deleteSyncProgress(id: String)
+
 }
 
-@Database(entities = [AccountRecord::class, MemoRecord::class, DraftRecord::class, BlobRecord::class, AttemptRecord::class], version = 1, exportSchema = true)
+@Database(
+    entities = [AccountRecord::class, MemoRecord::class, DraftRecord::class, BlobRecord::class, AttemptRecord::class, SyncOperation::class, SyncProgress::class],
+    version = 2,
+    exportSchema = true,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
+)
 abstract class MemaoDatabase : RoomDatabase() {
     abstract fun dao(): MemaoDao
 }
