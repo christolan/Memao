@@ -240,19 +240,23 @@ private fun NavigationDrawer(
     onClose:(()->Unit)?=null,
 ) {
     val c=LocalMemaoColors.current
+    val dividerGap = 16.dp
     Row(modifier.fillMaxHeight().background(c.background).semantics {paneTitle="导航菜单"}) {
         Column(Modifier.weight(1f).fillMaxHeight()) {
-            Row(Modifier.fillMaxWidth().testTag("drawerHeader").padding(horizontal=16.dp,vertical=12.dp)
-                .heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth().testTag("drawerHeader").padding(start=16.dp,top=8.dp,end=16.dp),
+                verticalAlignment=Alignment.CenterVertically,
+            ) {
                 MemaoBrandTitle(
-                    Modifier.weight(1f).padding(start = 12.dp),
+                    Modifier.weight(1f).padding(start=12.dp,top=dividerGap,bottom=dividerGap),
                     style = LocalTextStyle.current.copy(fontSize = 24.sp),
                     iconSize = 28.dp,
                 )
                 onClose?.let {close->MmIconButton(MmIcon.CLOSE,"关闭导航菜单",modifier=Modifier.testTag("drawerClose"),onClick=close)}
             }
+            MmRule()
             Column(Modifier.weight(1f).fillMaxWidth().testTag("drawerNavigation")
-                .verticalScroll(rememberScrollState()).padding(start=16.dp,end=16.dp,top=8.dp,bottom=12.dp)) {
+                .verticalScroll(rememberScrollState()).padding(start=16.dp,end=16.dp,top=dividerGap,bottom=12.dp)) {
                 listOf(UiPage.NOTES,UiPage.DRAFTS,UiPage.ARCHIVE).forEach {page->
                     DrawerItem(page,s.page==page){onNavigate {vm.navigate(page)}}
                 }
@@ -275,7 +279,7 @@ private fun NavigationDrawer(
                 MmRule()
                 MmButton(
                     "记录", {onNavigate {vm.newDraft()}},
-                    Modifier.padding(horizontal=16.dp,vertical=12.dp).fillMaxWidth().testTag("newMemo"),
+                    Modifier.padding(start=16.dp,end=16.dp,top=dividerGap,bottom=12.dp).fillMaxWidth().testTag("newMemo"),
                     primary=true,
                     enabled=s.accountId!=null&&!s.sending&&!s.importing,
                     icon=MmIcon.PLUS,
